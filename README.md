@@ -1,6 +1,6 @@
 # uniGradICON
 
-![teaser](IntroFigure.png?raw=true)
+![teaser](IntroFigure.jpg?raw=true)
 
 The official website for uniGradICON: A Foundation Model for Medical Image Registration
 
