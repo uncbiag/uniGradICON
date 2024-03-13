@@ -1,10 +1,10 @@
 # uniGradICON
 
+This the official repository for `uniGradICON`: A Foundation Model for Medical Image Registration
+
 ![teaser](IntroFigure.jpg?raw=true)
 
-The official website for uniGradICON: A Foundation Model for Medical Image Registration
-
-[paper](https://arxiv.org/abs/2403.05780)
+[arXiv](https://arxiv.org/abs/2403.05780)
 
 ```
 @misc{tian2024unigradicon,
@@ -16,7 +16,6 @@ The official website for uniGradICON: A Foundation Model for Medical Image Regis
       primaryClass={cs.CV}
 }
 ```
-
 
 To use:
 
