@@ -18,7 +18,7 @@ The official website for uniGradICON: A Foundation Model for Medical Image Regis
 To use:
 
 ```
-pip install unigradicon
+pip install git+https://github.com/uncbiag/uniGradICON/
 
 wget http://www.slicer.org/w/img_auth.php/5/59/RegLib_C01_1.nrrd
 wget http://www.slicer.org/w/img_auth.php/e/e3/RegLib_C01_2.nrrd
