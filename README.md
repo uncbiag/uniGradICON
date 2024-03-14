@@ -28,6 +28,7 @@ The result is a deep-learning-based registration model that works well across da
 **Training data:**
 <table>
     <tr>
+        <td> </td>
         <td>Dataset</td>
         <td>Anatomical region</td>
         <td># of patients</td>
@@ -37,7 +38,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>Modality</td>
     </tr>
     <tr>
-        <td>1. COPDGene</td>
+        <td>1.</td> 
+        <td>COPDGene</td>
         <td>Lung</td>
         <td>899</td>
         <td>2</td>
@@ -46,7 +48,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>CT</td>
     </tr>
     <tr>
-        <td>2. OAI</td>
+        <td>2.</td> 
+        <td>OAI</td>
         <td>Knee</td>
         <td>2532</td>
         <td>1</td>
@@ -55,7 +58,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>MRI</td>
     </tr>
     <tr>
-        <td>3. HCP</td>
+        <td>3.</td> 
+        <td>HCP</td>
         <td>Brain</td>
         <td>1076</td>
         <td>1</td>
@@ -64,7 +68,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>MRI</td>
     </tr>
     <tr>
-        <td>4. L2R-Abdomen</td>
+        <td>4.</td>
+        <td>L2R-Abdomen</td>
         <td>Abdomen</td>
         <td>30</td>
         <td>1</td>
@@ -77,6 +82,7 @@ The result is a deep-learning-based registration model that works well across da
 **Testing data:**
 <table>
     <tr>
+        <td> </td>
         <td>Dataset</td>
         <td>Anatomical region</td>
         <td># of patients</td>
@@ -86,7 +92,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>Modality</td>
     </tr>     
     <tr>
-        <td>5. Dirlab-COPDGene</td>
+        <td>5.</td>
+        <td>Dirlab-COPDGene</td>
         <td>Lung</td>
         <td>10</td>
         <td>2</td>
@@ -95,7 +102,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>CT</td>
     </tr>
     <tr>
-        <td>6. OAI-test</td>
+        <td>6.</td>
+        <td>OAI-test</td>
         <td>Knee</td>
         <td>301</td>
         <td>1</td>
@@ -104,7 +112,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>MRI</td>
     </tr>
     <tr>
-        <td>7. HCP-test</td>
+        <td>7.</td>
+        <td>HCP-test</td>
         <td>Brain</td>
         <td>32</td>
         <td>1</td>
@@ -113,7 +122,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>MRI</td>
     </tr>
     <tr>
-        <td>8. L2R-NLST-val</td>
+        <td>8.</td>
+        <td>L2R-NLST-val</td>
         <td>Lung</td>
         <td>10</td>
         <td>2</td>
@@ -122,7 +132,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>CT</td>
     </tr>
     <tr>
-        <td>9. L2R-OASIS-val</td>
+        <td>9.</td>
+        <td>L2R-OASIS-val</td>
         <td>Brain</td>
         <td>20</td>
         <td>1</td>
@@ -131,7 +142,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>MRI</td>
     </tr>
     <tr>
-        <td>10. IXI-test</td>
+        <td>10.</td>
+        <td>IXI-test</td>
         <td>Brain</td>
         <td>115</td>
         <td>1</td>
@@ -140,7 +152,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>MRI</td>
     </tr>
     <tr>
-        <td>11. L2R-CBCT-val</td>
+        <td>11.</td>
+        <td>L2R-CBCT-val</td>
         <td>Lung</td>
         <td>3</td>
         <td>3</td>
@@ -149,7 +162,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>CT/CBCT</td>
     </tr>
     <tr>
-        <td>12. L2R-CTMR-val</td>
+        <td>12.</td>
+        <td>L2R-CTMR-val</td>
         <td>Abdomen</td>
         <td>3</td>
         <td>2</td>
@@ -158,7 +172,8 @@ The result is a deep-learning-based registration model that works well across da
         <td>CT/MRI</td>
     </tr>
     <tr>
-        <td>13. L2R-CBCT-train</td>
+        <td>13.</td>
+        <td>L2R-CBCT-train</td>
         <td>Lung</td>
         <td>3</td>
         <td>11</td>
