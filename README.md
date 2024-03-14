@@ -3,9 +3,10 @@
 This the official repository for `uniGradICON`: A Foundation Model for Medical Image Registration
 
 `UniGradICON` is based on [GradICON](https://github.com/uncbiag/ICON) but trained on several different datasets (see details below). 
-The result is a deep-learning based registration model that works well across datasets. 
+The result is a deep-learning-based registration model that works well across datasets. 
 
 ![teaser](IntroFigure.jpg?raw=true)
+*Pure `uniGradICON` prediction results without instance optimization. To improve results even further just turn on instance optimization with one registration flag.*
 
 [arXiv](https://arxiv.org/abs/2403.05780)
 
@@ -183,7 +184,7 @@ unigradicon-register --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
 
 ## Plays well with others
 
-`uniGradICON` is set up to work with itk images and transforms. So you can easily read and write images and display resulting transformations for example in [3D Slicer](https://www.slicer.org/).
+`UniGradICON` is set up to work with [Itk](https://itk.org/) images and transforms. So you can easily read and write images and display resulting transformations for example in [3D Slicer](https://www.slicer.org/).
 
 The result can be viewed in Slicer
 ![result](slicer_output.png?raw=true)
