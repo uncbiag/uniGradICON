@@ -1,4 +1,4 @@
-# uniGradICON
+# <img src="ICON_universal_model.png" width="35" height="35"> uniGradICON
 
 This the official repository for `uniGradICON`: A Foundation Model for Medical Image Registration
 
