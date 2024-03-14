@@ -25,24 +25,16 @@ The result is a deep-learning-based registration model that works well across da
 
 `UniGradICON` has currently been trained and tested on the following datasets.
 
+**Training data:**
 <table>
     <tr>
         <td>Dataset</td>
-        <td>Anatomical</td>
-        <td># of</td>
-        <td># per</td>
-        <td># of</td>
+        <td>Anatomical region</td>
+        <td># of patients</td>
+        <td># per patient</td>
+        <td># of pairs</td>
         <td>Type</td>
         <td>Modality</td>
-    </tr>
-    <tr>
-        <td></td>
-        <td>region</td>
-        <td>patients</td>
-        <td>patient</td>
-        <td>pairs</td>
-        <td></td>
-        <td></td>
     </tr>
     <tr>
         <td>1. COPDGene</td>
@@ -80,6 +72,19 @@ The result is a deep-learning-based registration model that works well across da
         <td>Inter-pat.</td>
         <td>CT</td>
     </tr>
+</table>
+
+**Testing data:**
+<table>
+    <tr>
+        <td>Dataset</td>
+        <td>Anatomical region</td>
+        <td># of patients</td>
+        <td># per patient</td>
+        <td># of pairs</td>
+        <td>Type</td>
+        <td>Modality</td>
+    </tr>     
     <tr>
         <td>5. Dirlab-COPDGene</td>
         <td>Lung</td>
