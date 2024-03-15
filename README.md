@@ -8,7 +8,6 @@ This the official repository for `uniGradICON`: A Foundation Model for Medical I
 The result is a deep-learning-based registration model that works well across datasets. 
 
 ![teaser](IntroFigure.jpg?raw=true)
-*Pure `uniGradICON` prediction results without instance optimization. To improve results even further just turn on instance optimization with one registration flag.*
 
 [arXiv](https://arxiv.org/abs/2403.05780)
 
