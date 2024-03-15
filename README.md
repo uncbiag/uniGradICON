@@ -194,7 +194,7 @@ Our goal is to continuously improve the `uniGradICON` model, e.g., by training o
 To use:
 
 ```
-python -m venv unigradicon_virtualenv
+python3 -m venv unigradicon_virtualenv
 source unigradicon_virtualenv/bin/activate
 
 pip install unigradicon
