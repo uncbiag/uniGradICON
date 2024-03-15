@@ -197,7 +197,7 @@ To use:
 python -m venv unigradicon_virtualenv
 source unigradicon_virtualenv/bin/activate
 
-pip install git+https://github.com/uncbiag/uniGradICON/
+pip install unigradicon
 
 wget http://www.slicer.org/w/img_auth.php/5/59/RegLib_C01_1.nrrd
 wget http://www.slicer.org/w/img_auth.php/e/e3/RegLib_C01_2.nrrd
