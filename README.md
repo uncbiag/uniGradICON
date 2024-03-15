@@ -1,6 +1,7 @@
 # <img src="ICON_universal_model.png" width="35" height="35"> uniGradICON
 
 [<img src="https://github.com/uncbiag/unigradicon/actions/workflows/test_readme_works.yml/badge.svg">](https://github.com/uncbiag/unigradicon/actions)
+
 This the official repository for `uniGradICON`: A Foundation Model for Medical Image Registration
 
 `uniGradICON` is based on [GradICON](https://github.com/uncbiag/ICON) but trained on several different datasets (see details below). 
