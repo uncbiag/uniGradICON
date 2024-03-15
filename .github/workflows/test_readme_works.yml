@@ -24,6 +24,7 @@ jobs:
         pip install -e .
         wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
         wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
-
+    - name: Test
+      run: |
         unigradicon-register --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
             --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=3
