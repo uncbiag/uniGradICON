@@ -199,8 +199,8 @@ source unigradicon_virtualenv/bin/activate
 
 pip install unigradicon
 
-wget http://www.slicer.org/w/img_auth.php/5/59/RegLib_C01_1.nrrd
-wget http://www.slicer.org/w/img_auth.php/e/e3/RegLib_C01_2.nrrd
+wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
+wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
 
 unigradicon-register --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
     --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd
