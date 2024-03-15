@@ -192,6 +192,7 @@ def main():
     parser.add_argument("--moving")
     parser.add_argument("--transform_out")
     parser.add_argument("--warped_moving_out", default=None)
+    parser.add_argument("--io_iterations", default="50")
 
     args = parser.parse_args()
 
@@ -200,7 +201,7 @@ def main():
     fixed = itk.imread(args.fixed)
     moving = itk.imread(args.moving)
 
-    phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(net,preprocess(moving), preprocess(fixed), finetune_steps=50)
+    phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(net,preprocess(moving), preprocess(fixed), finetune_steps=int(args.io_iterations))
 
     itk.transformwrite([phi_AB], args.transform_out)
 
