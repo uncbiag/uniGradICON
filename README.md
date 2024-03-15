@@ -195,6 +195,9 @@ Our goal is to continuously improve the `uniGradICON` model, e.g., by training o
 To use:
 
 ```
+python -m venv unigradicon_virtualenv
+source unigradicon_virtualenv/bin/activate
+
 pip install git+https://github.com/uncbiag/uniGradICON/
 
 wget http://www.slicer.org/w/img_auth.php/5/59/RegLib_C01_1.nrrd
