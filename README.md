@@ -1,6 +1,6 @@
-# <img src="ICON_universal_model.png" width="35" height="35"> uniGradICON
+# <img src="ICON_universal_model.png" width="35" height="35"> uniGradICON: A Foundation Model for Medical Image Registration
 
-[<img src="https://github.com/uncbiag/unigradicon/actions/workflows/test_readme_works.yml/badge.svg">](https://github.com/uncbiag/unigradicon/actions)
+[<img src="https://github.com/uncbiag/unigradicon/actions/workflows/test_readme_works.yml/badge.svg">](https://github.com/uncbiag/unigradicon/actions) [![arXiv](https://img.shields.io/badge/arXiv-2403.05780-b31b1b.svg)](https://arxiv.org/abs/2403.05780)
 
 This the official repository for `uniGradICON`: A Foundation Model for Medical Image Registration
 
@@ -8,8 +8,6 @@ This the official repository for `uniGradICON`: A Foundation Model for Medical I
 The result is a deep-learning-based registration model that works well across datasets. 
 
 ![teaser](IntroFigure.jpg?raw=true)
-
-[arXiv](https://arxiv.org/abs/2403.05780)
 
 Please (currently) cite as:
 ```
@@ -206,6 +204,7 @@ unigradicon-register --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
     --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd
 
 ```
+We also provide a [colab](https://colab.research.google.com/drive/1JuFL113WN3FHCoXG-4fiBTWIyYpwGyGy?usp=sharing) demo.
 
 ## Plays well with others
 
