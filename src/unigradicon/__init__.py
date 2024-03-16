@@ -188,9 +188,9 @@ def main():
     import itk
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--fixed")
-    parser.add_argument("--moving")
-    parser.add_argument("--transform_out")
+    parser.add_argument("--fixed", required=True)
+    parser.add_argument("--moving", required=True)
+    parser.add_argument("--transform_out", required=True)
     parser.add_argument("--warped_moving_out", default=None)
     parser.add_argument("--io_iterations", default="50")
 
@@ -207,14 +207,48 @@ def main():
 
     if args.warped_moving_out:
         interpolator = itk.LinearInterpolateImageFunction.New(moving)
-        warped_image_A = itk.resample_image_filter(
+        warped_moving_image = itk.resample_image_filter(
                 moving,
                 transform=phi_AB,
                 interpolator=interpolator,
                 use_reference_image=True,
                 reference_image=fixed
                 )
-        itk.imwrite(warped_image_A, args.warped_moving_out)
+        itk.imwrite(warped_moving_image, args.warped_moving_out)
+
+def warp_command():
+    import itk
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fixed", required=True)
+    parser.add_argument("--moving", required=True)
+    parser.add_argument("--transform", required=True)
+    parser.add_argument("--warped_moving_out", required=True)
+    parser.add_argument('--nearest_neighbor', action='store_true')
+    parser.add_argument('--linear', action='store_true')
+
+    args = parser.parse_args()
+
+    fixed = itk.imread(args.fixed)
+    moving = itk.imread(args.moving)
+
+    phi_AB = itk.transformread(args.transform)[0]
+
+    if args.linear:
+        interpolator = itk.LinearInterpolateImageFunction.New(moving)
+    elif args.nearest_neighbor:
+        interpolator = itk.NearestNeighborInterpolateImageFunction.New(moving)
+    else:
+        raise Exception("Specify --nearest_neighbor or --linear")
+    warped_moving_image = itk.resample_image_filter(
+            moving,
+            transform=phi_AB,
+            interpolator=interpolator,
+            use_reference_image=True,
+            reference_image=fixed
+            )
+    itk.imwrite(warped_moving_image, args.warped_moving_out)
+
 
 
 
