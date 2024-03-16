@@ -224,7 +224,7 @@ def warp_command():
     parser.add_argument("--moving", required=True)
     parser.add_argument("--transform", required=True)
     parser.add_argument("--warped_moving_out", required=True)
-    parser.add_argument('--nearest_neigbor', action='store_true')
+    parser.add_argument('--nearest_neighbor', action='store_true')
     parser.add_argument('--linear', action='store_true')
 
     args = parser.parse_args()
