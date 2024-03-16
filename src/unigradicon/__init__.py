@@ -222,7 +222,7 @@ def warp_command():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixed", required=True)
     parser.add_argument("--moving", required=True)
-    parser.add_argument("--transform", required=True)
+    parser.add_argument("--transform")
     parser.add_argument("--warped_moving_out", required=True)
     parser.add_argument('--nearest_neighbor', action='store_true')
     parser.add_argument('--linear', action='store_true')
@@ -231,8 +231,10 @@ def warp_command():
 
     fixed = itk.imread(args.fixed)
     moving = itk.imread(args.moving)
-
-    phi_AB = itk.transformread(args.transform)[0]
+    if not args.transform:
+        phi_AB = itk.IdentityTransform[itk.D, 3].New()
+    else:
+        phi_AB = itk.transformread(args.transform)[0]
 
     if args.linear:
         interpolator = itk.LinearInterpolateImageFunction.New(moving)
