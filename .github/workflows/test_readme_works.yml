@@ -28,3 +28,5 @@ jobs:
       run: |
         unigradicon-register --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
             --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=3
+        unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
+            --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd
