@@ -204,7 +204,7 @@ def main():
     if args.io_iterations == "None":
         io_iterations = None
     else:
-        io_iterations = int(io_iterations)
+        io_iterations = int(args.io_iterations)
 
     phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(net,preprocess(moving), preprocess(fixed), finetune_steps=io_iterations)
 
