@@ -201,7 +201,12 @@ def main():
     fixed = itk.imread(args.fixed)
     moving = itk.imread(args.moving)
 
-    phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(net,preprocess(moving), preprocess(fixed), finetune_steps=int(args.io_iterations))
+    if args.io_iterations == "None":
+        io_iterations = None
+    else:
+        io_iterations = int(args.io_iterations)
+
+    phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(net,preprocess(moving), preprocess(fixed), finetune_steps=io_iterations)
 
     itk.transformwrite([phi_AB], args.transform_out)
 
