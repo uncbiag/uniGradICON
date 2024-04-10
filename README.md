@@ -5,7 +5,7 @@
 This the official repository for `uniGradICON`: A Foundation Model for Medical Image Registration
 
 `uniGradICON` is based on [GradICON](https://github.com/uncbiag/ICON) but trained on several different datasets (see details below). 
-The result is a deep-learning-based registration model that works well across datasets. 
+The result is a deep-learning-based registration model that works well across datasets. More results can be found [here](/demos/Examples.md).
 
 ![teaser](IntroFigure.jpg?raw=true)
 
