@@ -177,11 +177,17 @@ def get_unigradicon():
     net.eval()
     return net
 
+def quantile(arr: torch.Tensor, q):
+    arr = arr.flatten()
+    l = len(arr)
+    return torch.kthvalue(arr, int(q * l)).values
+
 def preprocess(image):
     image = itk.CastImageFilter[type(image), itk.Image[itk.F, 3]].New()(image)
-    max_ = np.max(np.array(image))
-    image = itk.shift_scale_image_filter(image, shift=0., scale = .9 / max_)
-    
+    min_ = quantile(torch.tensor(np.array(image)), .01)
+    image = itk.shift_scale_image_filter(image, shift=-min_, scale = 0)
+    max_ = quantile(torch.tensor(np.array(image)), .99)
+    image = itk.shift_scale_image_filter(image, shift=0, scale = 1/max_) 
     return image
 
 def main():
