@@ -185,7 +185,7 @@ def quantile(arr: torch.Tensor, q):
 def preprocess(image):
     image = itk.CastImageFilter[type(image), itk.Image[itk.F, 3]].New()(image)
     min_ = quantile(torch.tensor(np.array(image)), .01).item()
-    image = itk.shift_scale_image_filter(image, shift=-min_, scale = 0)
+    image = itk.shift_scale_image_filter(image, shift=-min_, scale = 1)
     max_ = quantile(torch.tensor(np.array(image)), .99).item()
     image = itk.shift_scale_image_filter(image, shift=0, scale = 1/max_) 
     return image
