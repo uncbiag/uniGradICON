@@ -200,8 +200,7 @@ pip install unigradicon
 wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
 wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
 
-unigradicon-register --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
-    --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd
 
 ```
 We also provide a [colab](https://colab.research.google.com/drive/1JuFL113WN3FHCoXG-4fiBTWIyYpwGyGy?usp=sharing) demo.

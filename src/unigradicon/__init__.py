@@ -177,22 +177,70 @@ def get_unigradicon():
     net.eval()
     return net
 
-def preprocess(image):
-    image = itk.CastImageFilter[type(image), itk.Image[itk.F, 3]].New()(image)
-    max_ = np.max(np.array(image))
-    image = itk.shift_scale_image_filter(image, shift=0., scale = .9 / max_)
-    
+def quantile(arr: torch.Tensor, q):
+    arr = arr.flatten()
+    l = len(arr)
+    return torch.kthvalue(arr, int(q * l)).values
+
+def apply_mask(image, segmentation):
+    segmentation_cast_filter = itk.CastImageFilter[type(segmentation),
+                                            itk.Image.F3].New()
+    segmentation_cast_filter.SetInput(segmentation)
+    segmentation_cast_filter.Update()
+    segmentation = segmentation_cast_filter.GetOutput()
+    mask_filter = itk.MultiplyImageFilter[itk.Image.F3, itk.Image.F3,
+                                    itk.Image.F3].New()
+
+    mask_filter.SetInput1(image)
+    mask_filter.SetInput2(segmentation)
+    mask_filter.Update()
+
+    return mask_filter.GetOutput()
+
+def preprocess(image, modality="ct", segmentation=None):
+    if modality == "ct":
+        min_ = -1000
+        max_ = 1000
+        image = itk.CastImageFilter[type(image), itk.Image[itk.F, 3]].New()(image)
+        image = itk.clamp_image_filter(image, Bounds=(-1000, 1000))
+    elif modality == "mri":
+        image = itk.CastImageFilter[type(image), itk.Image[itk.F, 3]].New()(image)
+        min_, _ = itk.image_intensity_min_max(image)
+        max_ = quantile(torch.tensor(np.array(image)), .99).item()
+        image = itk.clamp_image_filter(image, Bounds=(min_, max_))
+    else:
+        raise ValueError(f"{modality} not recognized. Use 'ct' or 'mri'.")
+
+    image = itk.shift_scale_image_filter(image, shift=-min_, scale = 1/(max_-min_)) 
+
+    if segmentation is not None:
+        image = apply_mask(image, segmentation)
     return image
 
 def main():
     import itk
     import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--fixed", required=True)
-    parser.add_argument("--moving", required=True)
-    parser.add_argument("--transform_out", required=True)
-    parser.add_argument("--warped_moving_out", default=None)
-    parser.add_argument("--io_iterations", default="50")
+    parser = argparse.ArgumentParser(description="Register two images using unigradicon.")
+    parser.add_argument("--fixed", required=True, type=str,
+                         help="The path of the fixed image.")
+    parser.add_argument("--moving", required=True, type=str,
+                         help="The path of the fixed image.")
+    parser.add_argument("--fixed_modality", required=True,
+                         type=str, help="The modality of the fixed image. Should be 'ct' or 'mri'.")
+    parser.add_argument("--moving_modality", required=True,
+                         type=str, help="The modality of the moving image. Should be 'ct' or 'mri'.")
+    parser.add_argument("--fixed_segmentation", required=False,
+                         type=str, help="The path of the segmentation map of the fixed image. \
+                         This map will be applied to the fixed image before registration.")
+    parser.add_argument("--moving_segmentation", required=False,
+                         type=str, help="The path of the segmentation map of the moving image. \
+                         This map will be applied to the moving image before registration.")
+    parser.add_argument("--transform_out", required=True,
+                         type=str, help="The path to save the transform.")
+    parser.add_argument("--warped_moving_out", required=False,
+                        default=None, type=str, help="The path to save the warped image.")
+    parser.add_argument("--io_iterations", required=False,
+                         default="50", help="The number of IO iterations. Default is 50. Set to 'None' to disable IO.")
 
     args = parser.parse_args()
 
@@ -200,13 +248,27 @@ def main():
 
     fixed = itk.imread(args.fixed)
     moving = itk.imread(args.moving)
+    
+    if args.fixed_segmentation is not None:
+        fixed_segmentation = itk.imread(args.fixed_segmentation)
+    else:
+        fixed_segmentation = None
+    
+    if args.moving_segmentation is not None:
+        moving_segmentation = itk.imread(args.moving_segmentation)
+    else:
+        moving_segmentation = None
 
     if args.io_iterations == "None":
         io_iterations = None
     else:
         io_iterations = int(args.io_iterations)
 
-    phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(net,preprocess(moving), preprocess(fixed), finetune_steps=io_iterations)
+    phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(
+        net,
+        preprocess(moving, args.moving_modality, moving_segmentation), 
+        preprocess(fixed, args.fixed_modality, fixed_segmentation), 
+        finetune_steps=io_iterations)
 
     itk.transformwrite([phi_AB], args.transform_out)
 
@@ -224,9 +286,11 @@ def main():
 def warp_command():
     import itk
     import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--fixed", required=True)
-    parser.add_argument("--moving", required=True)
+    parser = argparse.ArgumentParser(description="Warp an image with given transformation.")
+    parser.add_argument("--fixed", required=True, type=str,
+                         help="The path of the fixed image.")
+    parser.add_argument("--moving", required=True, type=str,
+                         help="The path of the moving image.")
     parser.add_argument("--transform")
     parser.add_argument("--warped_moving_out", required=True)
     parser.add_argument('--nearest_neighbor', action='store_true')

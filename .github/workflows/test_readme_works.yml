@@ -26,9 +26,9 @@ jobs:
         wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
     - name: Test
       run: |
-        unigradicon-register --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
+        unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
             --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=None
-        unigradicon-register --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
+        unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
             --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=3
         unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
             --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
