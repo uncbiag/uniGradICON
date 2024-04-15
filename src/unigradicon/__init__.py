@@ -196,7 +196,7 @@ def preprocess(image, modality="ct"):
     else:
         raise ValueError(f"{modality} not recognized. Use 'ct' or 'mri'.")
 
-    image = itk.shift_scale_image_filter(image, shift=min_, scale = 1/(max_-min_)) 
+    image = itk.shift_scale_image_filter(image, shift=-min_, scale = 1/(max_-min_)) 
     return image
 
 def main():
