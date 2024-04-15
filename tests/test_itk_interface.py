@@ -4,19 +4,26 @@ import unittest
 import numpy as np
 import torch
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 
 import icon_registration.test_utils
 import icon_registration.itk_wrapper
+import icon_registration.pretrained_models
 
 from unigradicon import preprocess, get_unigradicon
 
 
 class TestItkInterface(unittest.TestCase):
-    def test_itk_registration(self):
-        test_case_folder = "./test_files"
-        fixed_path = f"{test_case_folder}/mri_a.nii.gz"
-        moving_path = f"{test_case_folder}/mri_b.nii.gz"
+    def __init__(self, methodName: str = "runTest") -> None:
+        super().__init__(methodName)
+        icon_registration.test_utils.download_test_data()
+        self.test_data_dir = icon_registration.test_utils.TEST_DATA_DIR
+
+
+    def test_register_pair(self):
+        fixed_path = f"{self.test_data_dir}/brain_test_data/8_T1w_acpc_dc_restore_brain.nii.gz"
+        moving_path = f"{self.test_data_dir}/brain_test_data/2_T1w_acpc_dc_restore_brain.nii.gz"
 
         # Run ITK interface
         fixed = itk.imread(fixed_path)
@@ -59,8 +66,7 @@ class TestItkInterface(unittest.TestCase):
 
 
     def test_preprocessing_mri(self):
-        test_case_folder = "./test_files"
-        img_path = f"{test_case_folder}/mri_a.nii.gz"
+        img_path = f"{self.test_data_dir}/brain_test_data/8_T1w_acpc_dc_restore_brain.nii.gz"
 
         # Run ITK interface
         img = itk.imread(img_path)
@@ -79,8 +85,7 @@ class TestItkInterface(unittest.TestCase):
         )
     
     def test_preprocessing_ct(self):
-        test_case_folder = "./test_files"
-        img_path = f"{test_case_folder}/ct_test.nii.gz"
+        img_path = f"{self.test_data_dir}/lung_test_data/copd1_highres_EXP_STD_COPD_img.nii.gz"
 
         # Run ITK interface
         img = itk.imread(img_path)
@@ -97,3 +102,122 @@ class TestItkInterface(unittest.TestCase):
         self.assertLess(
             np.mean(np.abs(reference - img_preprocessed)), 1e-5
         )
+    
+    def test_itk_registration(self):
+        net = get_unigradicon()
+        
+        image_exp = itk.imread(
+            str(
+                self.test_data_dir
+                / "lung_test_data/copd1_highres_EXP_STD_COPD_img.nii.gz"
+            )
+        )
+        image_insp = itk.imread(
+            str(
+                self.test_data_dir
+                / "lung_test_data/copd1_highres_INSP_STD_COPD_img.nii.gz"
+            )
+        )
+        image_exp_seg = itk.imread(
+            str(
+                self.test_data_dir
+                / "lung_test_data/copd1_highres_EXP_STD_COPD_label.nii.gz"
+            )
+        )
+        image_insp_seg = itk.imread(
+            str(
+                self.test_data_dir
+                / "lung_test_data/copd1_highres_INSP_STD_COPD_label.nii.gz"
+            )
+        )
+
+        image_insp_preprocessed = preprocess(image_insp, "ct")
+        image_exp_preprocessed = preprocess(image_exp, "ct")
+
+        def apply_mask(image, segmentation):
+            segmentation_cast_filter = itk.CastImageFilter[type(segmentation),
+                                                    itk.Image.F3].New()
+            segmentation_cast_filter.SetInput(segmentation)
+            segmentation_cast_filter.Update()
+            segmentation = segmentation_cast_filter.GetOutput()
+            mask_filter = itk.MultiplyImageFilter[itk.Image.F3, itk.Image.F3,
+                                          itk.Image.F3].New()
+
+            mask_filter.SetInput1(image)
+            mask_filter.SetInput2(segmentation)
+            mask_filter.Update()
+
+            return mask_filter.GetOutput()
+
+        image_insp_preprocessed = apply_mask(image_insp_preprocessed, image_insp_seg)
+        image_exp_preprocessed = apply_mask(image_exp_preprocessed, image_exp_seg)
+
+        phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(
+            net, image_insp_preprocessed, image_exp_preprocessed, finetune_steps=None
+        )
+
+        assert isinstance(phi_AB, itk.CompositeTransform)
+
+        insp_points = icon_registration.test_utils.read_copd_pointset(
+            str(
+                icon_registration.test_utils.TEST_DATA_DIR
+                / "lung_test_data/copd1_300_iBH_xyz_r1.txt"
+            )
+        )
+        exp_points = icon_registration.test_utils.read_copd_pointset(
+            str(
+                icon_registration.test_utils.TEST_DATA_DIR
+                / "lung_test_data/copd1_300_eBH_xyz_r1.txt"
+            )
+        )
+        dists = []
+        for i in range(len(insp_points)):
+            px, py = (
+                exp_points[i],
+                np.array(phi_BA.TransformPoint(tuple(insp_points[i]))),
+            )
+            dists.append(np.sqrt(np.sum((px - py) ** 2)))
+        self.assertLess(np.mean(dists), 1.7)
+
+        dists = []
+        for i in range(len(insp_points)):
+            px, py = (
+                insp_points[i],
+                np.array(phi_AB.TransformPoint(tuple(exp_points[i]))),
+            )
+            dists.append(np.sqrt(np.sum((px - py) ** 2)))
+        self.assertLess(np.mean(dists), 2.1)
+    
+    def test_itk_warp(self):
+        fixed_path = f"{self.test_data_dir}/brain_test_data/8_T1w_acpc_dc_restore_brain.nii.gz"
+        moving_path = f"{self.test_data_dir}/brain_test_data/2_T1w_acpc_dc_restore_brain.nii.gz"
+
+        # Run ITK interface
+        fixed = itk.imread(fixed_path)
+        moving = itk.imread(moving_path)
+
+        net = get_unigradicon()
+
+        phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(
+            net,
+            preprocess(moving, "mri"), 
+            preprocess(fixed, "mri"), 
+            finetune_steps=None)
+
+        interpolator = itk.LinearInterpolateImageFunction.New(moving)
+        warped_moving_image = np.array(itk.resample_image_filter(
+                preprocess(moving, "mri"),
+                transform=phi_AB,
+                interpolator=interpolator,
+                use_reference_image=True,
+                reference_image=fixed
+                ))
+        
+        reference = F.interpolate(net.warped_image_A, size=warped_moving_image.shape, mode='trilinear', align_corners=False)[0,0].cpu().numpy()
+
+        from icon_registration.losses import NCC
+        diff = NCC()(torch.Tensor(warped_moving_image).unsqueeze(0).unsqueeze(0), torch.Tensor(reference).unsqueeze(0).unsqueeze(0))
+        self.assertLess(
+            diff, 5e-3
+        )
+        
