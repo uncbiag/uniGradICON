@@ -131,26 +131,8 @@ class TestItkInterface(unittest.TestCase):
             )
         )
 
-        image_insp_preprocessed = preprocess(image_insp, "ct")
-        image_exp_preprocessed = preprocess(image_exp, "ct")
-
-        def apply_mask(image, segmentation):
-            segmentation_cast_filter = itk.CastImageFilter[type(segmentation),
-                                                    itk.Image.F3].New()
-            segmentation_cast_filter.SetInput(segmentation)
-            segmentation_cast_filter.Update()
-            segmentation = segmentation_cast_filter.GetOutput()
-            mask_filter = itk.MultiplyImageFilter[itk.Image.F3, itk.Image.F3,
-                                          itk.Image.F3].New()
-
-            mask_filter.SetInput1(image)
-            mask_filter.SetInput2(segmentation)
-            mask_filter.Update()
-
-            return mask_filter.GetOutput()
-
-        image_insp_preprocessed = apply_mask(image_insp_preprocessed, image_insp_seg)
-        image_exp_preprocessed = apply_mask(image_exp_preprocessed, image_exp_seg)
+        image_insp_preprocessed = preprocess(image_insp, "ct", image_insp_seg)
+        image_exp_preprocessed = preprocess(image_exp, "ct", image_exp_seg)
 
         phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(
             net, image_insp_preprocessed, image_exp_preprocessed, finetune_steps=None
