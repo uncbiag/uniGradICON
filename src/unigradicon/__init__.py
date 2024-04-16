@@ -273,6 +273,7 @@ def main():
     itk.transformwrite([phi_AB], args.transform_out)
 
     if args.warped_moving_out:
+        moving = itk.CastImageFilter[type(moving), itk.Image[itk.F, 3]].New()(moving)
         interpolator = itk.LinearInterpolateImageFunction.New(moving)
         warped_moving_image = itk.resample_image_filter(
                 moving,
