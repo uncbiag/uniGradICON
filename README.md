@@ -203,7 +203,18 @@ wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd
 
 ```
+
+To warp
+```
+unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_file_name]  --transform trans.hdf5 --warped_moving_out warped.nii.gz --linear
+```
+To warp a label map
+
+```
+unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_segmentation_file_name]  --transform trans.hdf5 --warped_moving_out warped_seg.nii.gz --nearest_neighbor
+```
 We also provide a [colab](https://colab.research.google.com/drive/1JuFL113WN3FHCoXG-4fiBTWIyYpwGyGy?usp=sharing) demo.
+
 
 ## Plays well with others
 
