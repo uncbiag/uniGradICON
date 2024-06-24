@@ -19,6 +19,6 @@ Here is the qualitative results we presented in the [paper](https://arxiv.org/ab
 
 ## References
 
-<a id="1">[1]</a> Bernard, Olivier, et al. "Deep learning techniques for automatic MRI cardiac multi-structures segmentation and diagnosis: is the problem solved?." IEEE transactions on medical imaging 37.11 (2018): 2514-2525. doi: 10.1109/TMI.2018.2837502
+<a id="1">[1]</a> Bernard, Olivier, et al. "Deep learning techniques for automatic MRI cardiac multi-structures segmentation and diagnosis: is the problem solved?." IEEE transactions on medical imaging 37.11 (2018): 2514-2525. [DOI](https://doi.org/10.1109/TMI.2018.2837502)
 
-<a id="2">[2]</a> Castillo, Richard, et al. "A framework for evaluation of deformable image registration spatial accuracy using large landmark point sets." Physics in Medicine & Biology 54.7 (2009): 1849.
+<a id="2">[2]</a> Castillo, Richard, et al. "A framework for evaluation of deformable image registration spatial accuracy using large landmark point sets." Physics in Medicine & Biology 54.7 (2009): 1849. [DOI](https://doi.org/10.1088/0031-9155/54/7/001)
