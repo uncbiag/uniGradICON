@@ -217,6 +217,14 @@ def preprocess(image, modality="ct", segmentation=None):
         image = apply_mask(image, segmentation)
     return image
 
+def reorient(moving, fixed):
+    from itk.ITKCommonBasePython import itkSpatialOrientationAdapter
+
+    return itk.orient_image_filter(
+        moving, 
+        desired_coordinate_orientation=itkSpatialOrientationAdapter().FromDirectionCosines(fixed.GetDirection()), 
+        use_image_direction=True)
+
 def main():
     import itk
     import argparse
@@ -241,6 +249,7 @@ def main():
                         default=None, type=str, help="The path to save the warped image.")
     parser.add_argument("--io_iterations", required=False,
                          default="50", help="The number of IO iterations. Default is 50. Set to 'None' to disable IO.")
+    parser.add_argument("--reorient", action="store_true", help="Reorient the source image to the orientation of the target image.")
 
     args = parser.parse_args()
 
@@ -264,10 +273,16 @@ def main():
     else:
         io_iterations = int(args.io_iterations)
 
+    moving_processed = preprocess(moving, args.moving_modality, moving_segmentation)
+    fixed_processed = preprocess(fixed, args.fixed_modality, fixed_segmentation)
+
+    if args.reorient:
+        moving_processed = reorient(moving_processed, fixed_processed)
+
     phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(
         net,
-        preprocess(moving, args.moving_modality, moving_segmentation), 
-        preprocess(fixed, args.fixed_modality, fixed_segmentation), 
+        moving_processed, 
+        fixed_processed, 
         finetune_steps=io_iterations)
 
     itk.transformwrite([phi_AB], args.transform_out)
