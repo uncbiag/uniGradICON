@@ -5,6 +5,7 @@ import icon_registration.test_utils
 
 import subprocess
 import os
+import torch
 
 
 class TestCommandInterface(unittest.TestCase):
@@ -14,6 +15,7 @@ class TestCommandInterface(unittest.TestCase):
         self.test_data_dir = icon_registration.test_utils.TEST_DATA_DIR
         self.test_temp_dir = f"{self.test_data_dir}/temp"
         os.makedirs(self.test_temp_dir, exist_ok=True)
+        self.device = torch.cuda.current_device()
 
     def test_register_unigradicon_inference(self):
         subprocess.run([
@@ -58,8 +60,8 @@ class TestCommandInterface(unittest.TestCase):
 
         # remove temp file
         os.remove(f"{self.test_temp_dir}/transform.hdf5")
-
-    def test_register_unigradicon_io(self):
+    
+    def test_register_multigradicon_inference(self):
         subprocess.run([
             "unigradicon-register",
             "--fixed", f"{self.test_data_dir}/lung_test_data/copd1_highres_EXP_STD_COPD_img.nii.gz",
@@ -68,7 +70,9 @@ class TestCommandInterface(unittest.TestCase):
             "--moving", f"{self.test_data_dir}/lung_test_data/copd1_highres_INSP_STD_COPD_img.nii.gz",
             "--moving_modality", "ct",
             "--moving_segmentation", f"{self.test_data_dir}/lung_test_data/copd1_highres_INSP_STD_COPD_label.nii.gz",
-            "--transform_out", f"{self.test_temp_dir}/transform.hdf5"
+            "--transform_out", f"{self.test_temp_dir}/transform.hdf5",
+            "--io_iterations", "None",
+            "--model", "multigradicon"
         ])
 
         # load transform
@@ -97,8 +101,10 @@ class TestCommandInterface(unittest.TestCase):
             )
             dists.append(np.sqrt(np.sum((px - py) ** 2)))
         print(np.mean(dists))
-        self.assertLess(np.mean(dists), 1.5)
+        self.assertLess(np.mean(dists), 3.8)
 
         # remove temp file
         os.remove(f"{self.test_temp_dir}/transform.hdf5")
+
+        
         
