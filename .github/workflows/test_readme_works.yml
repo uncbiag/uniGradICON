@@ -24,7 +24,7 @@ jobs:
         pip install -e .
         wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
         wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
-        wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1_foreground_mask.nii.gz
+        wget https://www.hgreer.com/assets/RegLib_C01_1_foreground_mask.nii.gz
     - name: Test
       run: |
         unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
