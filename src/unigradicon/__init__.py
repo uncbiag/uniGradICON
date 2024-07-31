@@ -159,9 +159,18 @@ def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.L
     net.assign_identity_map(input_shape)
     return net
 
+def make_sim(similarity):
+    if similarity == "lncc":
+        return icon.LNCC(sigma=5)
+    elif similarity == "lncc2":
+        return icon. SquaredLNCC(sigma=5)
+    elif similarity == "mind":
+        return icon.MINDSSC(radius=2, dilation=2)
+    else:
+        raise ValueError(f"Similarity measure {similarity} not recognized. Choose from [lncc, lncc2, mind].")
 
-def get_unigradicon():
-    net = make_network(input_shape, include_last_step=True)
+def get_unigradicon(loss_fn=icon.LNCC(sigma=5)):
+    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn)
     from os.path import exists
     weights_location = "network_weights/unigradicon1.0/Step_2_final.trch"
     if not exists(weights_location):
@@ -241,10 +250,12 @@ def main():
                         default=None, type=str, help="The path to save the warped image.")
     parser.add_argument("--io_iterations", required=False,
                          default="50", help="The number of IO iterations. Default is 50. Set to 'None' to disable IO.")
+    parser.add_argument("--io_sim", required=False,
+                         default="lncc", help="The similarity measure used in IO. Default is LNCC. Choose from [lncc, lncc2, mind].")
 
     args = parser.parse_args()
 
-    net = get_unigradicon()
+    net = get_unigradicon(make_sim(args.io_sim))
 
     fixed = itk.imread(args.fixed)
     moving = itk.imread(args.moving)
