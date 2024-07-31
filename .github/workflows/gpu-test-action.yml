@@ -1,0 +1,31 @@
+name: gpu-tests
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+jobs:
+  test-linux:
+    runs-on: [self-hosted, linux]
+    strategy:
+      max-parallel: 5
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python 3.7
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.7
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        
+        pip install -e .
+
+    - name: fast test with unittest
+      run: |
+        python -m unittest -k CPU
+    - name: GPU test with unittest
+      run: |
+        python -m unittest discover
