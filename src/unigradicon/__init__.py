@@ -159,13 +159,40 @@ def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.L
     net.assign_identity_map(input_shape)
     return net
 
+def make_sim(similarity):
+    if similarity == "lncc":
+        return icon.LNCC(sigma=5)
+    elif similarity == "lncc2":
+        return icon. SquaredLNCC(sigma=5)
+    elif similarity == "mind":
+        return icon.MINDSSC(radius=2, dilation=2)
+    else:
+        raise ValueError(f"Similarity measure {similarity} not recognized. Choose from [lncc, lncc2, mind].")
 
-def get_unigradicon():
-    net = make_network(input_shape, include_last_step=True)
+def get_multigradicon(loss_fn=icon.LNCC(sigma=5)):
+    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn)
+    from os.path import exists
+    weights_location = "network_weights/multigradicon1.0/Step_2_final.trch"
+    if not exists(weights_location):
+        print("Downloading pretrained multigradicon model")
+        import urllib.request
+        import os
+        download_path = "https://github.com/uncbiag/uniGradICON/releases/download/multigradicon_weights/Step_2_final.trch"
+        os.makedirs("network_weights/multigradicon1.0/", exist_ok=True)
+        urllib.request.urlretrieve(download_path, weights_location)
+    print(f"Loading weights from {weights_location}")
+    trained_weights = torch.load(weights_location, map_location=torch.device("cpu"))
+    net.regis_net.load_state_dict(trained_weights)
+    net.to(config.device)
+    net.eval()
+    return net
+
+def get_unigradicon(loss_fn=icon.LNCC(sigma=5)):
+    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn)
     from os.path import exists
     weights_location = "network_weights/unigradicon1.0/Step_2_final.trch"
     if not exists(weights_location):
-        print("Downloading pretrained model")
+        print("Downloading pretrained unigradicon model")
         import urllib.request
         import os
         download_path = "https://github.com/uncbiag/uniGradICON/releases/download/unigradicon_weights/Step_2_final.trch"
@@ -176,6 +203,14 @@ def get_unigradicon():
     net.to(config.device)
     net.eval()
     return net
+
+def get_model_from_model_zoo(model_name="unigradicon", loss_fn=icon.LNCC(sigma=5)):
+    if model_name == "unigradicon":
+        return get_unigradicon(loss_fn)
+    elif model_name == "multigradicon":
+        return get_multigradicon(loss_fn)
+    else:
+        raise ValueError(f"Model {model_name} not recognized. Choose from [unigradicon, multigradicon].")
 
 def quantile(arr: torch.Tensor, q):
     arr = arr.flatten()
@@ -241,10 +276,14 @@ def main():
                         default=None, type=str, help="The path to save the warped image.")
     parser.add_argument("--io_iterations", required=False,
                          default="50", help="The number of IO iterations. Default is 50. Set to 'None' to disable IO.")
+    parser.add_argument("--io_sim", required=False,
+                         default="lncc", help="The similarity measure used in IO. Default is LNCC. Choose from [lncc, lncc2, mind].")
+    parser.add_argument("--model", required=False,
+                         default="unigradicon", help="The model to load. Default is unigradicon. Choose from [unigradicon, multigradicon].")
 
     args = parser.parse_args()
 
-    net = get_unigradicon()
+    net = get_model_from_model_zoo(args.model, make_sim(args.io_sim))
 
     fixed = itk.imread(args.fixed)
     moving = itk.imread(args.moving)
