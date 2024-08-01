@@ -12,7 +12,7 @@ class TestImports(unittest.TestCase):
         parent_dir = current_dir[: current_dir.rfind(path.sep)]
 
         with open(parent_dir + "/requirements.txt") as f:
-            requirements_txt = f.read()
+            requirements_txt = "\n" + f.read()
         requirements_cfg = configparser.ConfigParser()
         requirements_cfg.read(parent_dir + "/setup.cfg")
         requirements_cfg = requirements_cfg["options"]["install_requires"]
