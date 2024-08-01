@@ -334,7 +334,7 @@ def maybe_cast(img: itk.Image):
     """
     maybe_cast_back = lambda x: x
 
-    if (type(img), itk.D) not in itk.NearestNeighborInterpolateImageFunction.GetTypes():
+    if str((type(img), itk.D)) not in itk.NearestNeighborInterpolateImageFunction.GetTypesAsList():
 
         if type(img) in (itk.Image[itk.SL, 3], itk.Image[itk.UL, 3]):
             raise Exception("Label maps of type long or unsigned long may have values that cannot be represented in a double")
