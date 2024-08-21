@@ -256,3 +256,14 @@ We also provide a [colab](https://colab.research.google.com/drive/1JuFL113WN3FHC
 The result can be viewed in 3D Slicer:
 ![result](slicer_output.png?raw=true)
 
+## Atlas Building
+
+To create an atlas from a unimodal dataset where all images are the same size, run
+
+```
+unigradicon-atlas --images glob_for_images*.nrrd --modality=[mri/ct] --atlas_out atlas.nrrd
+```
+
+# Affine Registration
+
+To perform inital affine registration, add --robust_affine to your unigradicon-register command.
