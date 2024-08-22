@@ -9,6 +9,14 @@ The result is a deep-learning-based registration model that works well across da
 
 ![teaser](IntroFigure.jpg?raw=true)
 
+**uniGradICON: A Foundation Model for Medical Image Registration**  
+Tian, Lin and Greer, Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard and Niethammer, Marc  
+_MICCAI 2024_ https://arxiv.org/abs/2403.05780  
+
+**multiGradICON: A Foundation Model for Multimodal Medical Image Registration**  
+Demir, Basar and Tian, Lin and Greer, Thomas Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard Jarrett and Ebrahim, Ebrahim and Niethammer, Marc  
+_MICCAI Workshop on Biomedical Image Registration (WBIR) 2024_ https://arxiv.org/abs/2408.00221  
+
 Please (currently) cite as:
 ```
 @article{tian2024unigradicon,
@@ -17,7 +25,8 @@ Please (currently) cite as:
   journal={arXiv preprint arXiv:2403.05780},
   year={2024}
 }
-
+```
+```
 @article{demir2024multigradicon,
   title={multiGradICON: A Foundation Model for Multimodal Medical Image Registration},
   author={Demir, Basar and Tian, Lin and Greer, Thomas Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard Jarrett and Ebrahim, Ebrahim and Niethammer, Marc},
