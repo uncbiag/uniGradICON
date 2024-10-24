@@ -248,6 +248,9 @@ unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_segmenta
 
 We also provide a [colab](https://colab.research.google.com/drive/1JuFL113WN3FHCoXG-4fiBTWIyYpwGyGy?usp=sharing) demo.
 
+## Slicer Extension
+
+A Slicer extensions is available [here](https://github.com/uncbiag/SlicerUniGradICON?tab=readme-ov-file) (and hopefully will soon be available via the Slicer Extension Manager).
 
 ## Plays well with others
 
