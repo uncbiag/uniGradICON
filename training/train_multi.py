@@ -323,14 +323,14 @@ def finetune(net, data_loader, val_data_loader, GPUS, epochs, eval_period, save_
     
     net_par.train()
     
-    footsteps.output_dir_impl = footsteps.output_dir + "finetune/"
+    footsteps.output_dir_impl = footsteps.output_dir.split("2nd_step/")[0] + "finetune/"
     os.makedirs(footsteps.output_dir + "checkpoints", exist_ok=True)
 
     train(net_par, optimizer, data_loader, val_data_loader, unwrapped_net=net, epochs=epochs, eval_period=eval_period, save_period=save_period, data_augmenter=augment)
     
     torch.save(
                 net.regis_net.state_dict(),
-                footsteps.output_dir + "checkpoints/Step_2_final.trch",
+                footsteps.output_dir + "checkpoints/finetune_final.trch",
             )
 
 if __name__ == "__main__":
@@ -390,4 +390,7 @@ if __name__ == "__main__":
         drop_last=True,
     )
     
+    print("Finish data loading...")
+    
+    print("Start finetuning...")
     finetune(net, fine_dataloader, fine_val_dataloader, GPUS, 100, 20, 20)
