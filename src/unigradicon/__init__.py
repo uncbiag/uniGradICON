@@ -337,7 +337,7 @@ def main():
     itk.transformwrite([phi_AB], args.transform_out)
 
     if args.warped_moving_out:
-        moving = itk.CastImageFilter[type(moving), itk.Image[itk.F, 3]].New()(moving)
+        moving, maybe_cast_back = maybe_cast(moving)
         interpolator = itk.LinearInterpolateImageFunction.New(moving)
         warped_moving_image = itk.resample_image_filter(
                 moving,
@@ -346,6 +346,7 @@ def main():
                 use_reference_image=True,
                 reference_image=fixed
                 )
+        warped_moving_image = maybe_cast_back(warped_moving_image)
         itk.imwrite(warped_moving_image, args.warped_moving_out)
 
 def warp_command():
@@ -370,6 +371,8 @@ def warp_command():
     else:
         phi_AB = itk.transformread(args.transform)[0]
 
+    moving, maybe_cast_back = maybe_cast(moving)
+
     if args.linear:
         interpolator = itk.LinearInterpolateImageFunction.New(moving)
     elif args.nearest_neighbor:
@@ -383,4 +386,26 @@ def warp_command():
             use_reference_image=True,
             reference_image=fixed
             )
+
+    warped_moving_image = maybe_cast_back(warped_moving_image)
+
     itk.imwrite(warped_moving_image, args.warped_moving_out)
+
+def maybe_cast(img: itk.Image):
+    """
+    If an itk image is of a type that can't be used with InterpolateImageFunctions, cast it 
+    and be able to cast it back
+    """
+    maybe_cast_back = lambda x: x
+
+    if str((type(img), itk.D)) not in itk.NearestNeighborInterpolateImageFunction.GetTypesAsList():
+
+        if type(img) in (itk.Image[itk.ULL, 3], itk.Image[itk.UL, 3]):
+            raise Exception("Label maps of type unsigned long may have values that cannot be represented in a double")
+ 
+        maybe_cast_back = itk.CastImageFilter[itk.Image[itk.D, 3], type(img)].New()
+
+        img = itk.CastImageFilter[type(img), itk.Image[itk.D, 3]].New()(img)
+
+    return img, maybe_cast_back
+
