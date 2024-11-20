@@ -384,3 +384,32 @@ def warp_command():
             reference_image=fixed
             )
     itk.imwrite(warped_moving_image, args.warped_moving_out)
+
+def compute_jacobian_map_command():
+    import itk
+    import argparse
+    parser = argparse.ArgumentParser(description="Compute the Jacobian map of a given transform.")
+    parser.add_argument("--transform", required=True, type=str,
+                            help="The path to the transform file.")
+    parser.add_argument("--fixed", required=True, type=str,
+                            help="The path to the fixed image that has been used in the registration.")
+    parser.add_argument("--jacob", required=False, default="transform_jacob.nii.gz", help="The path to the output Jacobian map.")
+    parser.add_argument("--log_jacob", required=False, default="transform_log_jacob.nii.gz", help="The path to the output log Jacobian map.")
+    args = parser.parse_args()
+
+    transform_file = args.transform
+    fixed_img_file = args.fixed
+    transform = itk.transformread(transform_file)[0]
+    jacob = itk.displacement_field_jacobian_determinant_filter(
+        itk.transform_to_displacement_field_filter(
+            transform,
+            reference_image=itk.imread(fixed_img_file),
+            use_reference_image=True
+        )
+    )
+    log_jacob = itk.LogImageFilter.New(jacob)
+    log_jacob.Update()
+    log_jacob = log_jacob.GetOutput()
+
+    itk.imwrite(jacob, args.jacob)
+    itk.imwrite(jacob, args.log_jacob)
