@@ -393,8 +393,10 @@ def compute_jacobian_map_command():
                             help="The path to the transform file.")
     parser.add_argument("--fixed", required=True, type=str,
                             help="The path to the fixed image that has been used in the registration.")
-    parser.add_argument("--jacob", required=False, default="transform_jacob.nii.gz", help="The path to the output Jacobian map.")
-    parser.add_argument("--log_jacob", required=False, default="transform_log_jacob.nii.gz", help="The path to the output log Jacobian map.")
+    parser.add_argument("--jacob", required=True, default=None, help="The path to the output Jacobian map, \
+                        e.g. /path/to/output_jacobian.nii.gz")
+    parser.add_argument("--log_jacob", required=False, default=None, help="The path to the output log Jacobian map. \
+                            If not specified, the log Jacobian map will not be saved.")
     args = parser.parse_args()
 
     transform_file = args.transform
@@ -407,9 +409,10 @@ def compute_jacobian_map_command():
             use_reference_image=True
         )
     )
-    log_jacob = itk.LogImageFilter.New(jacob)
-    log_jacob.Update()
-    log_jacob = log_jacob.GetOutput()
-
     itk.imwrite(jacob, args.jacob)
-    itk.imwrite(jacob, args.log_jacob)
+
+    if args.log_jacob is not None:
+        log_jacob = itk.LogImageFilter.New(jacob)
+        log_jacob.Update()
+        log_jacob = log_jacob.GetOutput()
+        itk.imwrite(jacob, args.log_jacob)
