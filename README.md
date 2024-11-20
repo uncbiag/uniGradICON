@@ -9,15 +9,29 @@ The result is a deep-learning-based registration model that works well across da
 
 ![teaser](IntroFigure.jpg?raw=true)
 
+**uniGradICON: A Foundation Model for Medical Image Registration**  
+Tian, Lin and Greer, Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard and Niethammer, Marc  
+_MICCAI 2024_ https://arxiv.org/abs/2403.05780  
+
+**multiGradICON: A Foundation Model for Multimodal Medical Image Registration**  
+Demir, Basar and Tian, Lin and Greer, Thomas Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard Jarrett and Ebrahim, Ebrahim and Niethammer, Marc  
+_MICCAI Workshop on Biomedical Image Registration (WBIR) 2024_ https://arxiv.org/abs/2408.00221  
+
 Please (currently) cite as:
 ```
-@misc{tian2024unigradicon,
-      title={uniGradICON: A Foundation Model for Medical Image Registration}, 
-      author={Lin Tian and Hastings Greer and Roland Kwitt and Francois-Xavier Vialard and Raul San Jose Estepar and Sylvain Bouix and Richard Rushmore and Marc Niethammer},
-      year={2024},
-      eprint={2403.05780},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
+@article{tian2024unigradicon,
+  title={uniGradICON: A Foundation Model for Medical Image Registration},
+  author={Tian, Lin and Greer, Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard and Niethammer, Marc},
+  journal={arXiv preprint arXiv:2403.05780},
+  year={2024}
+}
+```
+```
+@article{demir2024multigradicon,
+  title={multiGradICON: A Foundation Model for Multimodal Medical Image Registration},
+  author={Demir, Basar and Tian, Lin and Greer, Thomas Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard Jarrett and Ebrahim, Ebrahim and Niethammer, Marc},
+  journal={arXiv preprint arXiv:2408.00221},
+  year={2024}
 }
 ```
 
@@ -204,12 +218,25 @@ unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=Reg
 
 ```
 
-To register without instance optimization
+To register without instance optimization (IO)
 ```
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations None
 ```
 
-To warp
+To use a different similarity measure in the IO. We currently support three similarity measures
+- LNCC: lncc
+- Squared LNCC: lncc2
+- MIND SSC: mind
+```
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2
+```
+
+To load specific model weight in the inference. We currently support uniGradICON and multiGradICON.
+```
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --model multigradicon
+```
+
+To warp an image
 ```
 unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_file_name]  --transform trans.hdf5 --warped_moving_out warped.nii.gz --linear
 ```
@@ -218,8 +245,12 @@ To warp a label map
 ```
 unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_segmentation_file_name]  --transform trans.hdf5 --warped_moving_out warped_seg.nii.gz --nearest_neighbor
 ```
+
 We also provide a [colab](https://colab.research.google.com/drive/1JuFL113WN3FHCoXG-4fiBTWIyYpwGyGy?usp=sharing) demo.
 
+## Slicer Extension
+
+A Slicer extensions is available [here](https://github.com/uncbiag/SlicerUniGradICON?tab=readme-ov-file) (and hopefully will soon be available via the Slicer Extension Manager).
 
 ## Plays well with others
 
