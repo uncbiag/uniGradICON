@@ -206,7 +206,7 @@ def get_multigradicon(loss_fn=icon.LNCC(sigma=5)):
         os.makedirs("network_weights/multigradicon1.0/", exist_ok=True)
         urllib.request.urlretrieve(download_path, weights_location)
     print(f"Loading weights from {weights_location}")
-    trained_weights = torch.load(weights_location, map_location=torch.device("cpu"))
+    trained_weights = torch.load(weights_location, map_location=torch.device("cpu"), weights_only=True)
     net.regis_net.load_state_dict(trained_weights)
     net.to(config.device)
     net.eval()
@@ -223,7 +223,7 @@ def get_unigradicon(loss_fn=icon.LNCC(sigma=5)):
         download_path = "https://github.com/uncbiag/uniGradICON/releases/download/unigradicon_weights/Step_2_final.trch"
         os.makedirs("network_weights/unigradicon1.0/", exist_ok=True)
         urllib.request.urlretrieve(download_path, weights_location)
-    trained_weights = torch.load(weights_location, map_location=torch.device("cpu"))
+    trained_weights = torch.load(weights_location, map_location=torch.device("cpu"), weights_only=True)
     net.regis_net.load_state_dict(trained_weights)
     net.to(config.device)
     net.eval()
