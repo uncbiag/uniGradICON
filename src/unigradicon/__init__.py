@@ -386,6 +386,9 @@ def warp_command():
             use_reference_image=True,
             reference_image=fixed
             )
+    
+    warped_moving_image = maybe_cast_back(warped_moving_image)
+
     itk.imwrite(warped_moving_image, args.warped_moving_out)
 
 def maybe_cast(img: itk.Image):
