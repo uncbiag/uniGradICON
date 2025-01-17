@@ -2,7 +2,6 @@
 
 [<img src="https://github.com/uncbiag/unigradicon/actions/workflows/test_readme_works.yml/badge.svg">](https://github.com/uncbiag/unigradicon/actions) [![arXiv](https://img.shields.io/badge/arXiv-2403.05780-b31b1b.svg)](https://arxiv.org/abs/2403.05780)
 
-This the official repository for `uniGradICON`: A Foundation Model for Medical Image Registration
 
 ## News
 - 🔥 uniGradICON [Slicer Extension](#slicer-extension) is available in [3D Slicer](https://www.slicer.org/) 5.7.0 Extensions Manager (12/2024)
@@ -11,13 +10,15 @@ This the official repository for `uniGradICON`: A Foundation Model for Medical I
 
 
 ## Introduction
-
 `uniGradICON` is based on [GradICON](https://github.com/uncbiag/ICON) but trained on several different datasets (see details below). 
 The result is a deep-learning-based registration model that works well across datasets. More results can be found [here](/demos/Examples.md). To get you started quickly there is also an easy to use [Slicer extension](#-inferece-via-slicer-extension). 
 
 <div align="center">
 <img src="IntroFigure.jpg" width=550 alt="teaser">
 </div>
+
+
+This is the repository for the following papers
 
 **uniGradICON: A Foundation Model for Medical Image Registration**  
 Tian, Lin and Greer, Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard and Niethammer, Marc  
