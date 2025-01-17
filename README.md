@@ -4,10 +4,20 @@
 
 This the official repository for `uniGradICON`: A Foundation Model for Medical Image Registration
 
-`uniGradICON` is based on [GradICON](https://github.com/uncbiag/ICON) but trained on several different datasets (see details below). 
-The result is a deep-learning-based registration model that works well across datasets. More results can be found [here](/demos/Examples.md). To get you started quickly there is also an easy to use [Slicer extension](#slicer-extension). 
+## News
+- 🔥 uniGradICON [Slicer Extension](#slicer-extension) is available in [3D Slicer](https://www.slicer.org/) 5.7.0 Extensions Manager (12/2024)
+- 🏆 multiGradICON wins the best oral presentation at 2024 MICCAI Workshop for Biomedical Image Registration (WBIR) (10/2024)
+- 🔥 uniGradICON has been used as a baseline in [LUMIR Brain MRI Registration Challenge](https://github.com/JHU-MedImage-Reg/LUMIR_L2R) (6/2024)
 
-![teaser](IntroFigure.jpg?raw=true)
+
+## Introduction
+
+`uniGradICON` is based on [GradICON](https://github.com/uncbiag/ICON) but trained on several different datasets (see details below). 
+The result is a deep-learning-based registration model that works well across datasets. More results can be found [here](/demos/Examples.md). To get you started quickly there is also an easy to use [Slicer extension](#-inferece-via-slicer-extension). 
+
+<div align="center">
+<img src="IntroFigure.jpg" width=550 alt="teaser">
+</div>
 
 **uniGradICON: A Foundation Model for Medical Image Registration**  
 Tian, Lin and Greer, Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard and Niethammer, Marc  
@@ -17,23 +27,62 @@ _MICCAI 2024_ https://arxiv.org/abs/2403.05780
 Demir, Basar and Tian, Lin and Greer, Thomas Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard Jarrett and Ebrahim, Ebrahim and Niethammer, Marc  
 _MICCAI Workshop on Biomedical Image Registration (WBIR) 2024_ https://arxiv.org/abs/2408.00221  
 
-Please (currently) cite as:
+## Easy to use and install
+The pre-trained uniGradICON and multiGradICON can be used via [CLI](#-inference-via-cli), [colab notebook](#-inferece-via-colab-notebook), and [Slicer Extension](#-inferece-via-slicer-extension). The model weights will be downloaded automatically. You can also find the model weights [here](https://github.com/uncbiag/uniGradICON/releases).
+
+### 👉 Inference via CLI
+Installation
+
 ```
-@article{tian2024unigradicon,
-  title={uniGradICON: A Foundation Model for Medical Image Registration},
-  author={Tian, Lin and Greer, Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard and Niethammer, Marc},
-  journal={arXiv preprint arXiv:2403.05780},
-  year={2024}
-}
+python3 -m venv unigradicon_virtualenv
+source unigradicon_virtualenv/bin/activate
+
+pip install unigradicon
 ```
+
+To register one pair of image
 ```
-@article{demir2024multigradicon,
-  title={multiGradICON: A Foundation Model for Multimodal Medical Image Registration},
-  author={Demir, Basar and Tian, Lin and Greer, Thomas Hastings and Kwitt, Roland and Vialard, Francois-Xavier and Estepar, Raul San Jose and Bouix, Sylvain and Rushmore, Richard Jarrett and Ebrahim, Ebrahim and Niethammer, Marc},
-  journal={arXiv preprint arXiv:2408.00221},
-  year={2024}
-}
+wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
+wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
+
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd
 ```
+
+To register without instance optimization (IO)
+```
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations None
+```
+
+To use a different similarity measure in the IO. We currently support three similarity measures
+- LNCC: lncc
+- Squared LNCC: lncc2
+- MIND SSC: mind
+```
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2
+```
+
+To load specific model weight in the inference. We currently support uniGradICON and multiGradICON.
+```
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --model multigradicon
+```
+
+To warp an image
+```
+unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_file_name]  --transform trans.hdf5 --warped_moving_out warped.nii.gz --linear
+```
+To warp a label map
+
+```
+unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_segmentation_file_name]  --transform trans.hdf5 --warped_moving_out warped_seg.nii.gz --nearest_neighbor
+```
+
+### 👉 Inferece via colab notebook
+We provide a [colab notebook](https://colab.research.google.com/drive/1JuFL113WN3FHCoXG-4fiBTWIyYpwGyGy?usp=sharing) where the users can directly access and visualize the output of uniGradICON network. 
+
+### 👉 Inferece via Slicer Extension
+
+A Slicer extensions is available [here](https://github.com/uncbiag/SlicerUniGradICON?tab=readme-ov-file). It is an official Slicer Extension and can be installed via the Slicer Extension Manager. This requires Slicer >=5.7.0. Please make sure to install the Slicer PyTorch extension before as uniGradICON depends on it.
+
 
 ## Training and testing data
 
@@ -201,61 +250,37 @@ Please (currently) cite as:
 
 Our goal is to continuously improve the `uniGradICON` model, e.g., by training on more datasets with additional diversity. Feel free to point us to datasets that should be included or let us know if you want to help with future developments.
 
-## Easy to use and install
 
-To use:
 
-```
-python3 -m venv unigradicon_virtualenv
-source unigradicon_virtualenv/bin/activate
-
-pip install unigradicon
-
-wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
-wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
-
-unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd
-
-```
-
-To register without instance optimization (IO)
-```
-unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations None
-```
-
-To use a different similarity measure in the IO. We currently support three similarity measures
-- LNCC: lncc
-- Squared LNCC: lncc2
-- MIND SSC: mind
-```
-unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2
-```
-
-To load specific model weight in the inference. We currently support uniGradICON and multiGradICON.
-```
-unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --model multigradicon
-```
-
-To warp an image
-```
-unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_file_name]  --transform trans.hdf5 --warped_moving_out warped.nii.gz --linear
-```
-To warp a label map
-
-```
-unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_segmentation_file_name]  --transform trans.hdf5 --warped_moving_out warped_seg.nii.gz --nearest_neighbor
-```
-
-We also provide a [colab](https://colab.research.google.com/drive/1JuFL113WN3FHCoXG-4fiBTWIyYpwGyGy?usp=sharing) demo.
-
-## Slicer Extension
-
-A Slicer extensions is available [here](https://github.com/uncbiag/SlicerUniGradICON?tab=readme-ov-file) . It is an official Slicer Extension and can be installed via the Slicer Extension Manager. This requires Slicer >=5.7.0. Please make sure to install the Slicer PyTorch extension before as uniGradICON depends on it.
-
-## Plays well with others
+## Visualization
 
 `UniGradICON` is set up to work with [Itk](https://itk.org/) images and transforms. So you can easily read and write images and display resulting transformations for example in [3D Slicer](https://www.slicer.org/).
 
 The result can be viewed in 3D Slicer:
-![result](slicer_output.png?raw=true)
+<div align="center">
+<img src="slicer_output.png" width=400>
+</div>
+
+## 📄 Citation
+If you find this repository useful, please consider citing:
+```
+@inproceedings{tian2024unigradicon,
+  title={unigradicon: A foundation model for medical image registration},
+  author={Tian, Lin and Greer, Hastings and Kwitt, Roland and Vialard, Fran{\c{c}}ois-Xavier and San Jos{\'e} Est{\'e}par, Ra{\'u}l and Bouix, Sylvain and Rushmore, Richard and Niethammer, Marc},
+  booktitle={International Conference on Medical Image Computing and Computer-Assisted Intervention},
+  pages={749--760},
+  year={2024},
+  organization={Springer}
+}
+```
+```
+@inproceedings{demir2024multigradicon,
+  title={MultiGradICON: A foundation model for multimodal medical image registration},
+  author={Demir, Ba{\c{s}}ar and Tian, Lin and Greer, Hastings and Kwitt, Roland and Vialard, Fran{\c{c}}ois-Xavier and Est{\'e}par, Ra{\'u}l San Jos{\'e} and Bouix, Sylvain and Rushmore, Richard and Ebrahim, Ebrahim and Niethammer, Marc},
+  booktitle={International Workshop on Biomedical Image Registration},
+  pages={3--18},
+  year={2024},
+  organization={Springer}
+}
+```
 
