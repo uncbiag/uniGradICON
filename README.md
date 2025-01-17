@@ -77,10 +77,10 @@ To warp a label map
 unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_segmentation_file_name]  --transform trans.hdf5 --warped_moving_out warped_seg.nii.gz --nearest_neighbor
 ```
 
-### 👉 Inferece via colab notebook
+### 👉 Inference via colab notebook
 We provide a [colab notebook](https://colab.research.google.com/drive/1JuFL113WN3FHCoXG-4fiBTWIyYpwGyGy?usp=sharing) where the users can directly access and visualize the output of uniGradICON network. 
 
-### 👉 Inferece via Slicer Extension
+### 👉 Inference via Slicer Extension
 
 A Slicer extensions is available [here](https://github.com/uncbiag/SlicerUniGradICON?tab=readme-ov-file). It is an official Slicer Extension and can be installed via the Slicer Extension Manager. This requires Slicer >=5.7.0. Please make sure to install the Slicer PyTorch extension before as uniGradICON depends on it.
 
