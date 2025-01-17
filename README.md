@@ -4,7 +4,7 @@
 
 
 ## News
-- 🔥 uniGradICON [Slicer Extension](#slicer-extension) is available in [3D Slicer](https://www.slicer.org/) 5.7.0 Extensions Manager (12/2024)
+- 🔥 uniGradICON [Slicer Extension](#-inferece-via-slicer-extension) is available in [3D Slicer](https://www.slicer.org/) 5.7.0 Extensions Manager (12/2024)
 - 🏆 multiGradICON wins the best oral presentation at 2024 MICCAI Workshop for Biomedical Image Registration (WBIR) (10/2024)
 - 🔥 uniGradICON has been used as a baseline in [LUMIR Brain MRI Registration Challenge](https://github.com/JHU-MedImage-Reg/LUMIR_L2R) (6/2024)
 
