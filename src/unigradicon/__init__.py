@@ -439,4 +439,4 @@ def compute_jacobian_map_command():
         log_jacob = itk.LogImageFilter.New(jacob)
         log_jacob.Update()
         log_jacob = log_jacob.GetOutput()
-        itk.imwrite(jacob, args.log_jacob)
+        itk.imwrite(log_jacob, args.log_jacob)
