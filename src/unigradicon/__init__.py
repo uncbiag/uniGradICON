@@ -18,17 +18,16 @@ import icon_registration.itk_wrapper
 input_shape = [1, 1, 175, 175, 175]
 
 class GradientICONSparse(network_wrappers.RegistrationModule):
-    def __init__(self, network, similarity, lmbda, use_label=False):
-
+    def __init__(self, network, similarity, lmbda, use_label=False, use_determinant=False):
         super().__init__()
 
         self.regis_net = network
         self.lmbda = lmbda
         self.similarity = similarity
         self.use_label = use_label
+        self.use_determinant = use_determinant
 
-    def forward(self, image_A, image_B, label_A=None, label_B=None):
-
+    def forward(self, image_A, image_B, label_A=None, label_B=None, mask_A=None, mask_B=None):
         assert self.identity_map.shape[2:] == image_A.shape[2:]
         assert self.identity_map.shape[2:] == image_B.shape[2:]
         if self.use_label:
@@ -65,6 +64,17 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         else:
             inbounds_tag = None
 
+        if self.use_determinant:
+            if len(self.input_shape) - 2 == 3:
+                jacobian_domain = np.index_exp[:, :, :-1, :-1, :-1]
+            elif len(self.input_shape) - 2 == 2:
+                jacobian_domain = np.index_exp[:, :, :-1, :-1]
+            else:
+                jacobian_domain = np.index_exp[:, :, :-1]
+                
+            jacobian_AB = self.compute_jacobian_determinant(self.phi_AB_vectorfield)
+            jacobian_BA = self.compute_jacobian_determinant(self.phi_BA_vectorfield)
+            
         self.warped_image_A = compute_warped_image_multiNC(
             torch.cat([image_A, inbounds_tag], axis=1) if inbounds_tag is not None else image_A,
             self.phi_AB_vectorfield,
@@ -95,13 +105,19 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
                 1,
             )
             
-            similarity_loss = self.similarity(
-                self.warped_label_A, label_B
-            ) + self.similarity(self.warped_label_B, label_A)
+            self.warped_loss_input_A = self.warped_label_A
+            self.warped_loss_input_B = self.warped_label_B
         else:
-            similarity_loss = self.similarity(
-                self.warped_image_A, image_B
-            ) + self.similarity(self.warped_image_B, image_A)
+            self.warped_loss_input_A = self.warped_image_A
+            self.warped_loss_input_B = self.warped_image_B
+            
+              
+        if self.use_determinant:
+            self.warped_loss_input_A_jacob = self.warped_loss_input_A[jacobian_domain] * jacobian_AB
+            self.warped_loss_input_B_jacob = self.warped_loss_input_B[jacobian_domain] * jacobian_BA
+            similarity_loss = self.similarity(self.warped_loss_input_B_jacob, image_A[jacobian_domain], mask_A[jacobian_domain]) + self.similarity(self.warped_loss_input_A_jacob, image_B[jacobian_domain], mask_B[jacobian_domain])
+        else:
+            similarity_loss = self.similarity(self.warped_loss_input_A, image_B, mask_B) + self.similarity(self.warped_loss_input_B, image_A, mask_A)
 
         if len(self.input_shape) - 2 == 3:
             Iepsilon = (
@@ -163,12 +179,35 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             icon.losses.flips(self.phi_BA_vectorfield),
         )
 
+    def compute_jacobian_determinant(self, phi):
+        if len(phi.size()) == 4:
+            du = phi[:, :, 1:, :-1] - phi[:, :, :-1, :-1]
+            dv = phi[:, :, :-1, 1:] - phi[:, :, :-1, :-1]
+            dA = du[:, 0] * dv[:, 1] - du[:, 1] * dv[:, 0]
+            dA = dA[:, None, :]
+            return (
+                dA * (self.identity_map.shape[2] - 1) * (self.identity_map.shape[3] - 1)
+            )
+        if len(phi.size()) == 5:
+            a = phi[:, :, 1:, 1:, 1:] - phi[:, :, :-1, 1:, 1:]
+            b = phi[:, :, 1:, 1:, 1:] - phi[:, :, 1:, :-1, 1:]
+            c = phi[:, :, 1:, 1:, 1:] - phi[:, :, 1:, 1:, :-1]
+
+            dV = torch.sum(torch.cross(a, b, 1) * c, dim=1, keepdim=True)
+            dV = (
+                dV
+                * (self.identity_map.shape[2] - 1)
+                * (self.identity_map.shape[3] - 1)
+                * (self.identity_map.shape[4] - 1)
+            )
+            return dV
+    
     def clean(self):
         del self.phi_AB, self.phi_BA, self.phi_AB_vectorfield, self.phi_BA_vectorfield, self.warped_image_A, self.warped_image_B
         if self.use_label:
             del self.warped_label_A, self.warped_label_B
 
-def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.LNCC(sigma=5), use_label=False):
+def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.LNCC(sigma=5), use_label=False, use_determinant=False):
     dimension = len(input_shape) - 2
     inner_net = icon.FunctionFromVectorField(networks.tallUNet2(dimension=dimension))
 
@@ -180,7 +219,7 @@ def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.L
     if include_last_step:
         inner_net = icon.TwoStepRegistration(inner_net, icon.FunctionFromVectorField(networks.tallUNet2(dimension=dimension)))
 
-    net = GradientICONSparse(inner_net, loss_fn, lmbda=lmbda, use_label=use_label)
+    net = GradientICONSparse(inner_net, loss_fn, lmbda=lmbda, use_label=use_label, use_determinant=use_determinant)
     net.assign_identity_map(input_shape)
     return net
 
@@ -188,14 +227,14 @@ def make_sim(similarity):
     if similarity == "lncc":
         return icon.LNCC(sigma=5)
     elif similarity == "lncc2":
-        return icon. SquaredLNCC(sigma=5)
+        return icon.SquaredLNCC(sigma=5)
     elif similarity == "mind":
         return icon.MINDSSC(radius=2, dilation=2)
     else:
         raise ValueError(f"Similarity measure {similarity} not recognized. Choose from [lncc, lncc2, mind].")
 
-def get_multigradicon(loss_fn=icon.LNCC(sigma=5)):
-    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn)
+def get_multigradicon(loss_fn=icon.LNCC(sigma=5), use_determinant=False):
+    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, use_determinant=use_determinant)
     from os.path import exists
     weights_location = "network_weights/multigradicon1.0/Step_2_final.trch"
     if not exists(weights_location):
@@ -212,8 +251,8 @@ def get_multigradicon(loss_fn=icon.LNCC(sigma=5)):
     net.eval()
     return net
 
-def get_unigradicon(loss_fn=icon.LNCC(sigma=5)):
-    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn)
+def get_unigradicon(loss_fn=icon.LNCC(sigma=5), use_determinant=False):
+    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, use_determinant=use_determinant)
     from os.path import exists
     weights_location = "network_weights/unigradicon1.0/Step_2_final.trch"
     if not exists(weights_location):
@@ -229,11 +268,11 @@ def get_unigradicon(loss_fn=icon.LNCC(sigma=5)):
     net.eval()
     return net
 
-def get_model_from_model_zoo(model_name="unigradicon", loss_fn=icon.LNCC(sigma=5)):
+def get_model_from_model_zoo(model_name="unigradicon", loss_fn=icon.LNCC(sigma=5), use_determinant=False):
     if model_name == "unigradicon":
-        return get_unigradicon(loss_fn)
+        return get_unigradicon(loss_fn, use_determinant)
     elif model_name == "multigradicon":
-        return get_multigradicon(loss_fn)
+        return get_multigradicon(loss_fn, use_determinant)
     else:
         raise ValueError(f"Model {model_name} not recognized. Choose from [unigradicon, multigradicon].")
 
@@ -290,11 +329,9 @@ def main():
     parser.add_argument("--moving_modality", required=True,
                          type=str, help="The modality of the moving image. Should be 'ct' or 'mri'.")
     parser.add_argument("--fixed_segmentation", required=False,
-                         type=str, help="The path of the segmentation map of the fixed image. \
-                         This map will be applied to the fixed image before registration.")
+                         type=str, help="The path of the segmentation map of the fixed image.")
     parser.add_argument("--moving_segmentation", required=False,
-                         type=str, help="The path of the segmentation map of the moving image. \
-                         This map will be applied to the moving image before registration.")
+                         type=str, help="The path of the segmentation map of the moving image.")
     parser.add_argument("--transform_out", required=True,
                          type=str, help="The path to save the transform.")
     parser.add_argument("--warped_moving_out", required=False,
@@ -305,10 +342,15 @@ def main():
                          default="lncc", help="The similarity measure used in IO. Default is LNCC. Choose from [lncc, lncc2, mind].")
     parser.add_argument("--model", required=False,
                          default="unigradicon", help="The model to load. Default is unigradicon. Choose from [unigradicon, multigradicon].")
+    parser.add_argument("--loss_function_masking", required=False,
+                         type=bool, default=False, help="Whether to apply loss function masking with provided segmentations. \
+                             If it is false, segmentations will be applied to the images before registration. Default is False.")
+    parser.add_argument("--use_determinant", required=False,
+                            type=bool, default=False, help="Whether to use determinant in the loss function. Default is False.")
 
     args = parser.parse_args()
 
-    net = get_model_from_model_zoo(args.model, make_sim(args.io_sim))
+    net = get_model_from_model_zoo(args.model, make_sim(args.io_sim), args.use_determinant)
 
     fixed = itk.imread(args.fixed)
     moving = itk.imread(args.moving)
@@ -322,17 +364,31 @@ def main():
         moving_segmentation = itk.imread(args.moving_segmentation)
     else:
         moving_segmentation = None
+        
+    if args.loss_function_masking:
+        if fixed_segmentation is None or moving_segmentation is None:
+            raise ValueError("If loss function masking is enabled, both fixed and moving segmentations must be provided.")
 
     if args.io_iterations == "None":
         io_iterations = None
     else:
         io_iterations = int(args.io_iterations)
 
-    phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(
-        net,
-        preprocess(moving, args.moving_modality, moving_segmentation), 
-        preprocess(fixed, args.fixed_modality, fixed_segmentation), 
-        finetune_steps=io_iterations)
+    if args.loss_function_masking:
+        phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(
+            net,
+            preprocess(moving, args.moving_modality), 
+            preprocess(fixed, args.fixed_modality),
+            moving_segmentation,
+            fixed_segmentation,
+            finetune_steps=io_iterations)
+
+    else:
+        phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(
+            net,
+            preprocess(moving, args.moving_modality, moving_segmentation), 
+            preprocess(fixed, args.fixed_modality, fixed_segmentation), 
+            finetune_steps=io_iterations)
 
     itk.transformwrite([phi_AB], args.transform_out)
 
