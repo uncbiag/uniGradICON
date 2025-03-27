@@ -227,9 +227,9 @@ def make_sim(similarity):
     if similarity == "lncc":
         return icon.LNCC(sigma=5)
     elif similarity == "lncc2":
-        return icon.SquaredLNCC(sigma=5)
+        return icon.losses.SquaredLNCC(sigma=5)
     elif similarity == "mind":
-        return icon.MINDSSC(radius=2, dilation=2)
+        return icon.losses.MINDSSC(radius=2, dilation=2)
     else:
         raise ValueError(f"Similarity measure {similarity} not recognized. Choose from [lncc, lncc2, mind].")
 
