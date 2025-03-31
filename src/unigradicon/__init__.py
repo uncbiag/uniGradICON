@@ -115,7 +115,15 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         if self.use_determinant:
             self.warped_loss_input_A_jacob = self.warped_loss_input_A[jacobian_domain] * jacobian_AB
             self.warped_loss_input_B_jacob = self.warped_loss_input_B[jacobian_domain] * jacobian_BA
-            similarity_loss = self.similarity(self.warped_loss_input_B_jacob, image_A[jacobian_domain], mask_A[jacobian_domain]) + self.similarity(self.warped_loss_input_A_jacob, image_B[jacobian_domain], mask_B[jacobian_domain])
+            similarity_loss = self.similarity(
+                self.warped_loss_input_B_jacob, 
+                image_A[jacobian_domain], 
+                mask_A[jacobian_domain] if mask_A is not None else None
+            ) + self.similarity(
+                self.warped_loss_input_A_jacob, 
+                image_B[jacobian_domain], 
+                mask_B[jacobian_domain] if mask_B is not None else None
+            )
         else:
             similarity_loss = self.similarity(self.warped_loss_input_A, image_B, mask_B) + self.similarity(self.warped_loss_input_B, image_A, mask_A)
 
@@ -343,10 +351,10 @@ def main():
     parser.add_argument("--model", required=False,
                          default="unigradicon", help="The model to load. Default is unigradicon. Choose from [unigradicon, multigradicon].")
     parser.add_argument("--loss_function_masking", required=False,
-                         type=bool, default=False, help="Whether to apply loss function masking with provided segmentations. \
+                         action="store_true", help="Whether to apply loss function masking with provided segmentations. \
                              If it is false, segmentations will be applied to the images before registration. Default is False.")
     parser.add_argument("--use_determinant", required=False,
-                            type=bool, default=False, help="Whether to use determinant in the loss function. Default is False.")
+                            action="store_true", help="Whether to use determinant in the loss function. Default is False.")
 
     args = parser.parse_args()
 
