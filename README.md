@@ -67,19 +67,19 @@ To load specific model weight in the inference. We currently support uniGradICON
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --model multigradicon
 ```
 
-To mask out the background with provided segmentation before the registration (segmentations for both moving and fixed images are necessary for good registration)
+To mask out the background using the provided segmentation before registration (segmentations for both moving and fixed images are necessary for accurate registration):
 ```
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations None
 ```
 
-To apply loss function masking with provided segmentations in the IO
+To apply loss function masking using the provided segmentations in the IO:
 ```
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --loss_function_masking
 ```
 
-This loss function ensures proper intensity adjustments for registration tasks requiring mass conservation, utilizing the change of variables rule from integration. To be effective, images must be in an intensity space where conservation holds. To apply determinant-based intensity correction during registration in the IO
+This loss function ensures proper intensity adjustments for registration tasks requiring mass conservation, utilizing the change of variables rule from integration. To be effective, images must be in an intensity space where conservation holds. This loss function is specifically valid for CT modality, where -1000 HU represents air. To apply determinant-based intensity correction during registration in the IO:
 ```
-unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --use_determinant
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --intensity_conservation_loss
 ```
 
 To warp an image

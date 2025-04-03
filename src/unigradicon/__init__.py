@@ -18,14 +18,14 @@ import icon_registration.itk_wrapper
 input_shape = [1, 1, 175, 175, 175]
 
 class GradientICONSparse(network_wrappers.RegistrationModule):
-    def __init__(self, network, similarity, lmbda, use_label=False, use_determinant=False):
+    def __init__(self, network, similarity, lmbda, use_label=False, apply_intensity_conservation_loss=False):
         super().__init__()
 
         self.regis_net = network
         self.lmbda = lmbda
         self.similarity = similarity
         self.use_label = use_label
-        self.use_determinant = use_determinant
+        self.apply_intensity_conservation_loss = apply_intensity_conservation_loss
 
     def forward(self, image_A, image_B, label_A=None, label_B=None, mask_A=None, mask_B=None):
         assert self.identity_map.shape[2:] == image_A.shape[2:]
@@ -64,7 +64,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         else:
             inbounds_tag = None
 
-        if self.use_determinant:
+        if self.apply_intensity_conservation_loss:
             if len(self.input_shape) - 2 == 3:
                 jacobian_domain = np.index_exp[:, :, :-1, :-1, :-1]
             elif len(self.input_shape) - 2 == 2:
@@ -112,7 +112,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             self.warped_loss_input_B = self.warped_image_B
             
               
-        if self.use_determinant:
+        if self.apply_intensity_conservation_loss:
             self.warped_loss_input_A_jacob = self.warped_loss_input_A[jacobian_domain] * jacobian_AB
             self.warped_loss_input_B_jacob = self.warped_loss_input_B[jacobian_domain] * jacobian_BA
             similarity_loss = self.similarity(
@@ -215,7 +215,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         if self.use_label:
             del self.warped_label_A, self.warped_label_B
 
-def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.LNCC(sigma=5), use_label=False, use_determinant=False):
+def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.LNCC(sigma=5), use_label=False, apply_intensity_conservation_loss=False):
     dimension = len(input_shape) - 2
     inner_net = icon.FunctionFromVectorField(networks.tallUNet2(dimension=dimension))
 
@@ -227,7 +227,7 @@ def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.L
     if include_last_step:
         inner_net = icon.TwoStepRegistration(inner_net, icon.FunctionFromVectorField(networks.tallUNet2(dimension=dimension)))
 
-    net = GradientICONSparse(inner_net, loss_fn, lmbda=lmbda, use_label=use_label, use_determinant=use_determinant)
+    net = GradientICONSparse(inner_net, loss_fn, lmbda=lmbda, use_label=use_label, apply_intensity_conservation_loss=apply_intensity_conservation_loss)
     net.assign_identity_map(input_shape)
     return net
 
@@ -241,8 +241,8 @@ def make_sim(similarity):
     else:
         raise ValueError(f"Similarity measure {similarity} not recognized. Choose from [lncc, lncc2, mind].")
 
-def get_multigradicon(loss_fn=icon.LNCC(sigma=5), use_determinant=False):
-    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, use_determinant=use_determinant)
+def get_multigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False):
+    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, apply_intensity_conservation_loss=apply_intensity_conservation_loss)
     from os.path import exists
     weights_location = "network_weights/multigradicon1.0/Step_2_final.trch"
     if not exists(weights_location):
@@ -259,8 +259,8 @@ def get_multigradicon(loss_fn=icon.LNCC(sigma=5), use_determinant=False):
     net.eval()
     return net
 
-def get_unigradicon(loss_fn=icon.LNCC(sigma=5), use_determinant=False):
-    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, use_determinant=use_determinant)
+def get_unigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False):
+    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, apply_intensity_conservation_loss=apply_intensity_conservation_loss)
     from os.path import exists
     weights_location = "network_weights/unigradicon1.0/Step_2_final.trch"
     if not exists(weights_location):
@@ -276,11 +276,11 @@ def get_unigradicon(loss_fn=icon.LNCC(sigma=5), use_determinant=False):
     net.eval()
     return net
 
-def get_model_from_model_zoo(model_name="unigradicon", loss_fn=icon.LNCC(sigma=5), use_determinant=False):
+def get_model_from_model_zoo(model_name="unigradicon", loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False):
     if model_name == "unigradicon":
-        return get_unigradicon(loss_fn, use_determinant)
+        return get_unigradicon(loss_fn, apply_intensity_conservation_loss)
     elif model_name == "multigradicon":
-        return get_multigradicon(loss_fn, use_determinant)
+        return get_multigradicon(loss_fn, apply_intensity_conservation_loss)
     else:
         raise ValueError(f"Model {model_name} not recognized. Choose from [unigradicon, multigradicon].")
 
@@ -351,14 +351,19 @@ def main():
     parser.add_argument("--model", required=False,
                          default="unigradicon", help="The model to load. Default is unigradicon. Choose from [unigradicon, multigradicon].")
     parser.add_argument("--loss_function_masking", required=False,
-                         action="store_true", help="Whether to apply loss function masking with provided segmentations. \
-                             If it is false, segmentations will be applied to the images before registration. Default is False.")
-    parser.add_argument("--use_determinant", required=False,
-                            action="store_true", help="Whether to use determinant in the loss function. Default is False.")
+                         action="store_true", help="Apply loss function masking using the provided segmentations. \
+                             If not set, segmentations will instead be used to mask out the images before registration.")
+    parser.add_argument("--intensity_conservation_loss", required=False,
+                            action="store_true", help="Enable determinant-based intensity correction in the loss \
+                            function for mass-conserving registration. Applicable only for CT modality where -1000 HU represents air.")
 
     args = parser.parse_args()
+    
+    if args.intensity_conservation_loss:
+        if args.fixed_modality != "ct" or args.moving_modality != "ct":
+            raise ValueError("Intensity conservation loss is only supported for CT images.")
 
-    net = get_model_from_model_zoo(args.model, make_sim(args.io_sim), args.use_determinant)
+    net = get_model_from_model_zoo(args.model, make_sim(args.io_sim), args.intensity_conservation_loss)
 
     fixed = itk.imread(args.fixed)
     moving = itk.imread(args.moving)
