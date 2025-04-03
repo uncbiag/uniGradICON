@@ -66,11 +66,11 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
 
         if self.apply_intensity_conservation_loss:
             if len(self.input_shape) - 2 == 3:
-                jacobian_domain = np.index_exp[:, :, :-1, :-1, :-1]
+                jacobian_slice = np.index_exp[:, :, :-1, :-1, :-1]
             elif len(self.input_shape) - 2 == 2:
-                jacobian_domain = np.index_exp[:, :, :-1, :-1]
+                jacobian_slice = np.index_exp[:, :, :-1, :-1]
             else:
-                jacobian_domain = np.index_exp[:, :, :-1]
+                jacobian_slice = np.index_exp[:, :, :-1]
                 
             jacobian_AB = self.compute_jacobian_determinant(self.phi_AB_vectorfield)
             jacobian_BA = self.compute_jacobian_determinant(self.phi_BA_vectorfield)
@@ -113,16 +113,16 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             
               
         if self.apply_intensity_conservation_loss:
-            self.warped_loss_input_A_jacob = self.warped_loss_input_A[jacobian_domain] * jacobian_AB
-            self.warped_loss_input_B_jacob = self.warped_loss_input_B[jacobian_domain] * jacobian_BA
+            self.warped_loss_input_A_jacob = self.warped_loss_input_A[jacobian_slice] * jacobian_AB
+            self.warped_loss_input_B_jacob = self.warped_loss_input_B[jacobian_slice] * jacobian_BA
             similarity_loss = self.similarity(
                 self.warped_loss_input_B_jacob, 
-                image_A[jacobian_domain], 
-                mask_A[jacobian_domain] if mask_A is not None else None
+                image_A[jacobian_slice], 
+                mask_A[jacobian_slice] if mask_A is not None else None
             ) + self.similarity(
                 self.warped_loss_input_A_jacob, 
-                image_B[jacobian_domain], 
-                mask_B[jacobian_domain] if mask_B is not None else None
+                image_B[jacobian_slice], 
+                mask_B[jacobian_slice] if mask_B is not None else None
             )
         else:
             similarity_loss = self.similarity(self.warped_loss_input_A, image_B, mask_B) + self.similarity(self.warped_loss_input_B, image_A, mask_A)
