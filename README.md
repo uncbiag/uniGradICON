@@ -93,7 +93,7 @@ unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_segmenta
 ```
 
 ### 👉 Inference via colab notebook
-We provide a [colab notebook](https://drive.google.com/file/d/1O4F0j_ZaRHxyFJ-pfApl2E1_47-wzxMj/view?usp=sharing) where the users can directly access and visualize the output of uniGradICON network. 
+We provide a [colab notebook](https://colab.research.google.com/drive/1O4F0j_ZaRHxyFJ-pfApl2E1_47-wzxMj#offline=true&sandboxMode=true) where the users can directly access and visualize the output of uniGradICON network. 
 
 ### 👉 Inference via Slicer Extension
 
