@@ -95,26 +95,42 @@ jobs:
             exit 0
           fi
           
-          # Get GPU utilization and memory usage
-          GPU_INFO=$(nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader,nounits)
+          # Define minimum required memory in MiB
+          MIN_REQUIRED_MEMORY=10000
           
-          # Find the most idle GPU (lowest utilization + lowest memory usage)
+          # Get GPU utilization, memory used and total memory
+          GPU_INFO=$(nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits)
+          
+          # Find the most idle GPU with enough memory
           IDLE_GPU=-1
           LOWEST_SCORE=100000  # Start with a high number
           
           echo "Available GPUs:"
           echo "$GPU_INFO"
           
-          while IFS="," read -r idx util mem; do
+          while IFS="," read -r idx util mem_used mem_total; do
             # Remove leading/trailing spaces
             idx=$(echo $idx | xargs)
             util=$(echo $util | xargs)
-            mem=$(echo $mem | xargs)
+            mem_used=$(echo $mem_used | xargs)
+            mem_total=$(echo $mem_total | xargs)
             
-            # Calculate a "busy score" (utilization + memory in MB/10)
-            SCORE=$((util + mem/10))
+            # Calculate available memory
+            mem_avail=$((mem_total - mem_used))
             
-            echo "GPU $idx: Score=$SCORE (util=$util%, mem=$mem MiB)"
+            echo "GPU $idx: Utilization=$util%, Memory=${mem_used}/${mem_total} MiB, Available=${mem_avail} MiB"
+            
+            # Skip GPU if it doesn't have enough available memory
+            if [ $mem_avail -lt $MIN_REQUIRED_MEMORY ]; then
+              echo "  - Skipping: insufficient available memory"
+              continue
+            fi
+            
+            # Calculate a "busy score" (utilization + memory_used/total_memory*100)
+            MEMORY_PERCENT=$((mem_used * 100 / mem_total))
+            SCORE=$((util + MEMORY_PERCENT))
+            
+            echo "  - Score=$SCORE (util=$util%, memory_usage=$MEMORY_PERCENT%)"
             
             # Check if this GPU is more idle than previous best
             if [ $SCORE -lt $LOWEST_SCORE ]; then
@@ -123,40 +139,45 @@ jobs:
             fi
           done <<< "$GPU_INFO"
           
-          echo "Selected GPU $IDLE_GPU with score $LOWEST_SCORE"
+          if [ $IDLE_GPU -eq -1 ]; then
+            echo "No GPU with sufficient memory found"
+          else
+            echo "Selected GPU $IDLE_GPU with score $LOWEST_SCORE"
+          fi
+          
           echo "gpu_id=$IDLE_GPU" >> $GITHUB_OUTPUT
         
-      - name: GPU test with unittest
+      - name: Run unit tests with GPU
         env:
           CUDA_VISIBLE_DEVICES: ${{ steps.find_gpu.outputs.gpu_id }}
         run: |
           if [ "$CUDA_VISIBLE_DEVICES" == "-1" ]; then
             echo "No GPU available, skipping GPU tests"
-            # Optional: run CPU-only tests instead
-            # USING_CPU=1 python -m unittest discover
           else
             echo "Running tests on GPU $CUDA_VISIBLE_DEVICES"
             python -m unittest discover
           fi
 
-      - name: Test with CLI
+      - name: Test CLI with CPU
         env:
-          CUDA_VISIBLE_DEVICES: ${{ steps.find_gpu.outputs.gpu_id }}
+          CUDA_VISIBLE_DEVICES: ""  # Force CPU execution
         run: |
-          if [ "$CUDA_VISIBLE_DEVICES" == "-1" ]; then
-            echo "No GPU available, skipping GPU CLI tests"
-          else
-            echo "Running CLI tests on GPU $CUDA_VISIBLE_DEVICES"
-            unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
-                --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=None
-            unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
-                --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=3
-            unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
-                --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
-            unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1_foreground_mask.nii.gz \
-                --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
-            unigradicon-jacobian --fixed=RegLib_C01_2.nrrd --transform=trans.hdf5 --jacob=jacobian.nii.gz
-          fi
+          echo "Running all tests on CPU"
+          
+          # All commands running on CPU
+          unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+              --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=None
+              
+          unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+              --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=3
+              
+          unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
+              --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
+              
+          unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1_foreground_mask.nii.gz \
+              --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
+              
+          unigradicon-jacobian --fixed=RegLib_C01_2.nrrd --transform=trans.hdf5 --jacob=jacobian.nii.gz
       
       # - name: Upload to TestPyPI
       #   env:
