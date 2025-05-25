@@ -85,21 +85,78 @@ jobs:
           wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
           wget https://www.hgreer.com/assets/RegLib_C01_1_foreground_mask.nii.gz
       
-      - name: GPU test with unittest
-        run: 
-          python -m unittest discover
-
-      - name: Test
+      - name: Find idle GPU
+        id: find_gpu
         run: |
-          unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
-              --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=None
-          unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
-              --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=3
-          unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
-              --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
-          unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1_foreground_mask.nii.gz \
-              --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
-          unigradicon-jacobian --fixed=RegLib_C01_2.nrrd --transform=trans.hdf5 --jacob=jacobian.nii.gz
+          # Install nvidia-smi if not available
+          if ! command -v nvidia-smi &> /dev/null; then
+            echo "nvidia-smi not found, assuming no GPUs available"
+            echo "gpu_id=-1" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Get GPU utilization and memory usage
+          GPU_INFO=$(nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader,nounits)
+          
+          # Find the most idle GPU (lowest utilization + lowest memory usage)
+          IDLE_GPU=-1
+          LOWEST_SCORE=100000  # Start with a high number
+          
+          echo "Available GPUs:"
+          echo "$GPU_INFO"
+          
+          while IFS="," read -r idx util mem; do
+            # Remove leading/trailing spaces
+            idx=$(echo $idx | xargs)
+            util=$(echo $util | xargs)
+            mem=$(echo $mem | xargs)
+            
+            # Calculate a "busy score" (utilization + memory in MB/10)
+            SCORE=$((util + mem/10))
+            
+            echo "GPU $idx: Score=$SCORE (util=$util%, mem=$mem MiB)"
+            
+            # Check if this GPU is more idle than previous best
+            if [ $SCORE -lt $LOWEST_SCORE ]; then
+              LOWEST_SCORE=$SCORE
+              IDLE_GPU=$idx
+            fi
+          done <<< "$GPU_INFO"
+          
+          echo "Selected GPU $IDLE_GPU with score $LOWEST_SCORE"
+          echo "gpu_id=$IDLE_GPU" >> $GITHUB_OUTPUT
+        
+      - name: GPU test with unittest
+        env:
+          CUDA_VISIBLE_DEVICES: ${{ steps.find_gpu.outputs.gpu_id }}
+        run: |
+          if [ "$CUDA_VISIBLE_DEVICES" == "-1" ]; then
+            echo "No GPU available, skipping GPU tests"
+            # Optional: run CPU-only tests instead
+            # USING_CPU=1 python -m unittest discover
+          else
+            echo "Running tests on GPU $CUDA_VISIBLE_DEVICES"
+            python -m unittest discover
+          fi
+
+      - name: Test with CLI
+        env:
+          CUDA_VISIBLE_DEVICES: ${{ steps.find_gpu.outputs.gpu_id }}
+        run: |
+          if [ "$CUDA_VISIBLE_DEVICES" == "-1" ]; then
+            echo "No GPU available, skipping GPU CLI tests"
+          else
+            echo "Running CLI tests on GPU $CUDA_VISIBLE_DEVICES"
+            unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+                --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=None
+            unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+                --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=3
+            unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
+                --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
+            unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1_foreground_mask.nii.gz \
+                --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
+            unigradicon-jacobian --fixed=RegLib_C01_2.nrrd --transform=trans.hdf5 --jacob=jacobian.nii.gz
+          fi
       
       # - name: Upload to TestPyPI
       #   env:
