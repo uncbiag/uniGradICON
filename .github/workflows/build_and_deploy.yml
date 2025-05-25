@@ -1,17 +1,22 @@
 name: Build and Deploy
 
 on:
-  push:
-    branches:
-      - release
-      - Add_build_workflow
   workflow_dispatch:
-    # Manual trigger with optional inputs if needed
-    # inputs:
-    #   reason:
-    #     description: 'Reason for manual build'
-    #     required: false
-    #     default: 'Manual testing'
+    inputs:
+      upload_to_testpypi:
+        description: 'Upload to TestPyPI'
+        required: true
+        default: 'false'
+        type: boolean
+      upload_to_pypi:
+        description: 'Upload to PyPI'
+        required: true
+        default: 'false'
+        type: boolean
+      reason:
+        description: 'Reason for manual build'
+        required: false
+        default: 'Manual testing'
 
 # Add permissions that restrict who can run this workflow
 permissions:
@@ -49,7 +54,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
         with:
-          ref: Add_build_workflow
+          ref: main
 
       - name: Set up Python 3.8
         uses: actions/setup-python@v2
@@ -110,34 +115,31 @@ jobs:
               
           unigradicon-jacobian --fixed=RegLib_C01_2.nrrd --transform=trans.hdf5 --jacob=jacobian.nii.gz
       
-      # - name: Upload to TestPyPI
-      #   env:
-      #     TWINE_USERNAME: ${{ secrets.TEST_PYPI_USERNAME }}
-      #     TWINE_PASSWORD: ${{ secrets.TEST_PYPI_PASSWORD }}
-      #   run: |
-      #     python -m twine upload --repository testpypi dist/*
-      
-      # - name: Uninstall local package
-      #   run: |
-      #     python -m pip uninstall -y ${{ steps.pkg_info.outputs.pkg_name }}
-      
-      # - name: Install package from TestPyPI
-      #   run: |
-      #     python -m pip install --index-url https://test.pypi.org/simple/ --no-deps ${{ steps.pkg_info.outputs.pkg_name }}==${{ steps.pkg_info.outputs.pkg_version }}
-      #     # Install dependencies from PyPI (not TestPyPI)
-      #     python -m pip install ${{ steps.pkg_info.outputs.pkg_name }}==${{ steps.pkg_info.outputs.pkg_version }} --no-index --find-links dist/
+      - name: Upload to TestPyPI and verify
+        if: github.event.inputs.upload_to_testpypi == 'true'
+        env:
+          TWINE_USERNAME: ${{ secrets.TEST_PYPI_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_PASSWORD }}
+        run: |
+          python -m twine upload --repository testpypi dist/*
 
-      # - name: Run verification test from TestPyPI installation
-      #   run: |
-      #     unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
-      #         --transform_out=trans_testpypi.hdf5 --warped_moving_out=warped_testpypi.nrrd --io_iterations=None
+          # Verify installation from TestPyPI
+          python -m pip uninstall -y ${{ steps.pkg_info.outputs.pkg_name }}
+
+          python -m pip install --index-url https://test.pypi.org/simple/ --no-deps ${{ steps.pkg_info.outputs.pkg_name }}==${{ steps.pkg_info.outputs.pkg_version }}
+          # Install dependencies from PyPI (not TestPyPI)
+          python -m pip install ${{ steps.pkg_info.outputs.pkg_name }}==${{ steps.pkg_info.outputs.pkg_version }} --no-index --find-links dist/
+
+          unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+              --transform_out=trans_testpypi.hdf5 --warped_moving_out=warped_testpypi.nrrd --io_iterations=None
       
-      # - name: Upload to PyPI
-      #   env:
-      #     TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-      #     TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-      #   run: |
-      #     python -m twine upload dist/*
+      - name: Upload to PyPI
+        if: github.event.inputs.upload_to_pypi == 'true'
+        env:
+          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: |
+          python -m twine upload dist/*
       
       - name: Upload distributions
         uses: actions/upload-artifact@v4
