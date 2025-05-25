@@ -34,7 +34,6 @@ jobs:
               }
             } catch (error) {
               core.setFailed('Only members of uncbiag organization can manually trigger this workflow');
-              process.exit(1);
             }
 
   build:
@@ -79,7 +78,7 @@ jobs:
           WHEEL_FILE=$(find dist -name "*.whl" | head -n 1)
           python -m pip install $WHEEL_FILE
 
-      - name: Install dependencies
+      - name: Download test data
         run: |
           wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
           wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
