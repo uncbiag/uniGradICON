@@ -1,15 +1,13 @@
 name: Build and Deploy
 
 on:
+  push:
+    branches:
+      - Add_build_workflow
   workflow_dispatch:
     inputs:
       upload_to_testpypi:
         description: 'Upload to TestPyPI'
-        required: true
-        default: 'false'
-        type: boolean
-      upload_to_pypi:
-        description: 'Upload to PyPI'
         required: true
         default: 'false'
         type: boolean
@@ -139,13 +137,13 @@ jobs:
           path: dist/
 
       - name: Publish release distributions to PyPI
-        if: github.event.inputs.upload_to_testpypi == 'true'
+        # if: github.event.inputs.upload_to_testpypi == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
 
       - name: Verify installation from TestPyPI
-        if: github.event.inputs.upload_to_testpypi == 'true'
+        # if: github.event.inputs.upload_to_testpypi == 'true'
         run: |
           python -m pip install --index-url https://test.pypi.org/simple/ --no-deps ${{ steps.pkg_info.outputs.pkg_name }}==${{ steps.pkg_info.outputs.pkg_version }}
           # Install dependencies from PyPI (not TestPyPI)
