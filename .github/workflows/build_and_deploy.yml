@@ -87,7 +87,7 @@ jobs:
         
       - name: Run unit tests with GPU
         env:
-          CUDA_VISIBLE_DEVICES: 1
+          CUDA_VISIBLE_DEVICES: "1"
         run: |
           echo "Running tests on GPU $CUDA_VISIBLE_DEVICES"
           python -m unittest discover
