@@ -124,7 +124,7 @@ jobs:
     needs: [build]
 
     permissions:
-      id_token: write
+      id-token: write
     
     environment:
       name: pypi
