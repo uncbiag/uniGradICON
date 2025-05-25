@@ -1,0 +1,146 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - release
+  workflow_dispatch:
+    # Manual trigger with optional inputs if needed
+    # inputs:
+    #   reason:
+    #     description: 'Reason for manual build'
+    #     required: false
+    #     default: 'Manual testing'
+
+# Add permissions that restrict who can run this workflow
+permissions:
+  contents: read
+
+jobs:
+  # Add a check job that verifies organization membership
+  check-membership:
+    runs-on: [self-hosted, linux]
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Check organization membership
+        uses: actions/github-script@v6
+        with:
+          script: |
+            try {
+              const isOrgMember = await github.rest.orgs.checkMembershipForUser({
+                org: 'uncbiag',
+                username: context.actor
+              });
+              if (isOrgMember.status !== 204) {
+                core.setFailed('Only members of uncbiag organization can manually trigger this workflow');
+                process.exit(1);
+              }
+            } catch (error) {
+              core.setFailed('Only members of uncbiag organization can manually trigger this workflow');
+              process.exit(1);
+            }
+
+  build-and-deploy:
+    runs-on: [self-hosted, linux]
+    needs: [check-membership]
+    if: always() && (github.event_name != 'workflow_dispatch' || success())
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          ref: release
+
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine pytest
+
+      - name: Build package
+        run: python -m build
+          
+      - name: Get package name and version
+        id: pkg_info
+        run: |
+          # Extract package name and version from setup.cfg
+          PKG_NAME=$(grep -m 1 "name = " setup.cfg | cut -d "=" -f 2 | tr -d '[:space:]')
+          PKG_VERSION=$(grep -m 1 "version = " setup.cfg | cut -d "=" -f 2 | tr -d '[:space:]')
+          echo "pkg_name=$PKG_NAME" >> $GITHUB_OUTPUT
+          echo "pkg_version=$PKG_VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Install package from local build
+        run: |
+          # Find and install the wheel file
+          WHEEL_FILE=$(find dist -name "*.whl" | head -n 1)
+          python -m pip install $WHEEL_FILE
+
+      - name: Install dependencies
+        run: |
+          wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
+          wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
+          wget https://www.hgreer.com/assets/RegLib_C01_1_foreground_mask.nii.gz
+      
+      - name: GPU test with unittest
+        run: 
+          python -m unittest discover
+
+      - name: Test
+        run: |
+          unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+              --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=None
+          unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+              --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=3
+          unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
+              --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
+          unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1_foreground_mask.nii.gz \
+              --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
+          unigradicon-jacobian --fixed=RegLib_C01_2.nrrd --transform=trans.hdf5 --jacob=jacobian.nii.gz
+      
+      # - name: Upload to TestPyPI
+      #   env:
+      #     TWINE_USERNAME: ${{ secrets.TEST_PYPI_USERNAME }}
+      #     TWINE_PASSWORD: ${{ secrets.TEST_PYPI_PASSWORD }}
+      #   run: |
+      #     python -m twine upload --repository testpypi dist/*
+      
+      # - name: Uninstall local package
+      #   run: |
+      #     python -m pip uninstall -y ${{ steps.pkg_info.outputs.pkg_name }}
+      
+      # - name: Install package from TestPyPI
+      #   run: |
+      #     python -m pip install --index-url https://test.pypi.org/simple/ --no-deps ${{ steps.pkg_info.outputs.pkg_name }}==${{ steps.pkg_info.outputs.pkg_version }}
+      #     # Install dependencies from PyPI (not TestPyPI)
+      #     python -m pip install ${{ steps.pkg_info.outputs.pkg_name }}==${{ steps.pkg_info.outputs.pkg_version }} --no-index --find-links dist/
+
+      # - name: Run verification test from TestPyPI installation
+      #   run: |
+      #     unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+      #         --transform_out=trans_testpypi.hdf5 --warped_moving_out=warped_testpypi.nrrd --io_iterations=None
+      
+      # - name: Upload to PyPI
+      #   env:
+      #     TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+      #     TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+      #   run: |
+      #     python -m twine upload dist/*
+      
+      - name: Archive build artifacts
+        env:
+          ARCHIVE_BASE_PATH: ${{ secrets.BUILD_ARCHIVE_PATH }}
+        run: |
+          # Create timestamped directory within the base path from secret
+          TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+          ARCHIVE_DIR="${ARCHIVE_BASE_PATH}/${{ steps.pkg_info.outputs.pkg_name }}-${{ steps.pkg_info.outputs.pkg_version }}_${TIMESTAMP}"
+          
+          # Create directory if it doesn't exist
+          mkdir -p "$ARCHIVE_DIR"
+          
+          # Copy build artifacts
+          cp -r dist/* "$ARCHIVE_DIR/"
+          
+          echo "Build artifacts archived to $ARCHIVE_DIR"
