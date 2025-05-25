@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - release
+      - Add_build_workflow
   workflow_dispatch:
     # Manual trigger with optional inputs if needed
     # inputs:
