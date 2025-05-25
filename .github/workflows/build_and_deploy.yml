@@ -48,7 +48,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
         with:
-          ref: release
+          ref: Add_build_workflow
 
       - name: Set up Python 3.8
         uses: actions/setup-python@v2
