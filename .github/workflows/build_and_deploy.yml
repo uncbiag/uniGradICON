@@ -86,10 +86,7 @@ jobs:
           wget https://www.hgreer.com/assets/RegLib_C01_1_foreground_mask.nii.gz
         
       - name: Run unit tests with GPU
-        env:
-          CUDA_VISIBLE_DEVICES: "1"
-        run: |
-          echo "Running tests on GPU $CUDA_VISIBLE_DEVICES"
+        run:
           python -m unittest discover
 
       - name: Test CLI with CPU
