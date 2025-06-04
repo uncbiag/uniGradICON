@@ -20,6 +20,8 @@ input_shape = [1, 1, 160, 160, 160]
 import icon_registration.unicarl.register as register
 import icon_registration.unicarl.affine_decomposition as affine_decomposition
 
+from unigradicon import maybe_cast, maybe_cast_back
+
 def get_unicarl():
     from os.path import exists
     weights_location = "network_weights/unicarl_preview/longleaf_unicarl_8"
