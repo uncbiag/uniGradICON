@@ -20,7 +20,7 @@ input_shape = [1, 1, 160, 160, 160]
 import icon_registration.unicarl.register as register
 import icon_registration.unicarl.affine_decomposition as affine_decomposition
 
-from unigradicon import maybe_cast, maybe_cast_back
+from unigradicon import maybe_cast
 
 def get_unicarl():
     from os.path import exists
