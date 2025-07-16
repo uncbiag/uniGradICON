@@ -241,10 +241,11 @@ def make_sim(similarity):
     else:
         raise ValueError(f"Similarity measure {similarity} not recognized. Choose from [lncc, lncc2, mind].")
 
-def get_multigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False):
+def get_multigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False, weights_location=None):
     net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, apply_intensity_conservation_loss=apply_intensity_conservation_loss)
     from os.path import exists
-    weights_location = "network_weights/multigradicon1.0/Step_2_final.trch"
+    if weights_location is None:
+        weights_location = "network_weights/multigradicon1.0/Step_2_final.trch"
     if not exists(weights_location):
         print("Downloading pretrained multigradicon model")
         import urllib.request
@@ -259,10 +260,11 @@ def get_multigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_l
     net.eval()
     return net
 
-def get_unigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False):
+def get_unigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False, weights_location=None):
     net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, apply_intensity_conservation_loss=apply_intensity_conservation_loss)
     from os.path import exists
-    weights_location = "network_weights/unigradicon1.0/Step_2_final.trch"
+    if weights_location is None:
+        weights_location = "network_weights/unigradicon1.0/Step_2_final.trch"
     if not exists(weights_location):
         print("Downloading pretrained unigradicon model")
         import urllib.request
