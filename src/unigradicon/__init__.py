@@ -1,6 +1,4 @@
 import itk
-import os
-from datetime import datetime
 
 import footsteps
 import numpy as np
@@ -11,21 +9,22 @@ import icon_registration as icon
 import icon_registration.network_wrappers as network_wrappers
 import icon_registration.networks as networks
 from icon_registration import config
-from icon_registration.losses import ICONLoss, to_floats
 from icon_registration.mermaidlite import compute_warped_image_multiNC
 import icon_registration.itk_wrapper
 
 input_shape = [1, 1, 175, 175, 175]
 
 class GradientICONSparse(network_wrappers.RegistrationModule):
-    def __init__(self, network, similarity, lmbda, use_label=False, apply_intensity_conservation_loss=False):
+    def __init__(self, network, similarity, lmbda, use_label=False, apply_intensity_conservation_loss=False, dice_loss_weight=0.0, loss_function_masking=False):
         super().__init__()
 
         self.regis_net = network
         self.lmbda = lmbda
+        self.dice_loss_weight = dice_loss_weight
         self.similarity = similarity
         self.use_label = use_label
         self.apply_intensity_conservation_loss = apply_intensity_conservation_loss
+        self.loss_function_masking = loss_function_masking
 
     def forward(self, image_A, image_B, label_A=None, label_B=None, mask_A=None, mask_B=None):
         assert self.identity_map.shape[2:] == image_A.shape[2:]
@@ -35,6 +34,12 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             label_B = image_B if label_B is None else label_B
             assert self.identity_map.shape[2:] == label_A.shape[2:]
             assert self.identity_map.shape[2:] == label_B.shape[2:]
+            
+        if self.dice_loss_weight > 0.0:
+            assert mask_A is not None and mask_B is not None, "mask_A and mask_B must be provided when dice_loss_weight>0"
+            num_classes = torch.max(mask_A.max(), mask_B.max()) + 1
+            mask_A_one_hot = F.one_hot(mask_A.long(), num_classes=num_classes)[:,0].permute(0, 4, 1, 2, 3).float()
+            mask_B_one_hot = F.one_hot(mask_B.long(), num_classes=num_classes)[:,0].permute(0, 4, 1, 2, 3).float()
 
         # Tag used elsewhere for optimization.
         # Must be set at beginning of forward b/c not preserved by .cuda() etc
@@ -89,7 +94,25 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             1,
             zero_boundary=True
         )
+
+        if self.dice_loss_weight > 0.0:
+            self.warped_seg_A = compute_warped_image_multiNC(
+                torch.cat([mask_A_one_hot, inbounds_tag], axis=1) if inbounds_tag is not None else mask_A_one_hot.float(),
+                self.phi_AB_vectorfield,
+                self.spacing,
+                1,
+            )
         
+            self.warped_seg_B = compute_warped_image_multiNC(
+                torch.cat([mask_B_one_hot, inbounds_tag], axis=1) if inbounds_tag is not None else mask_B_one_hot.float(),
+                self.phi_BA_vectorfield,
+                self.spacing,
+                1,
+            )
+            dice_loss = self.dice_loss(self.warped_seg_A, mask_B_one_hot) + self.dice_loss(self.warped_seg_B, mask_A_one_hot)
+        else:
+            dice_loss = 0.0
+            
         if self.use_label:
             self.warped_label_A = compute_warped_image_multiNC(
                 torch.cat([label_A, inbounds_tag], axis=1) if inbounds_tag is not None else label_A,
@@ -125,7 +148,10 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
                 mask_B[jacobian_slice] if mask_B is not None else None
             )
         else:
-            similarity_loss = self.similarity(self.warped_loss_input_A, image_B, mask_B) + self.similarity(self.warped_loss_input_B, image_A, mask_A)
+            if self.loss_function_masking:
+                similarity_loss = self.similarity(self.warped_loss_input_A, image_B, mask_B) + self.similarity(self.warped_loss_input_B, image_A, mask_A)
+            else:
+                similarity_loss = self.similarity(self.warped_loss_input_A, image_B) + self.similarity(self.warped_loss_input_B, image_A)
 
         if len(self.input_shape) - 2 == 3:
             Iepsilon = (
@@ -174,7 +200,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
 
         inverse_consistency_loss = sum(direction_losses)
 
-        all_loss = self.lmbda * inverse_consistency_loss + similarity_loss
+        all_loss = self.lmbda * inverse_consistency_loss + similarity_loss + dice_loss * self.dice_loss_weight
 
         transform_magnitude = torch.mean(
             (self.identity_map - self.phi_AB_vectorfield) ** 2
@@ -215,7 +241,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         if self.use_label:
             del self.warped_label_A, self.warped_label_B
 
-def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.LNCC(sigma=5), use_label=False, apply_intensity_conservation_loss=False):
+def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.LNCC(sigma=5), use_label=False, apply_intensity_conservation_loss=False, dice_loss_weight=0.0):
     dimension = len(input_shape) - 2
     inner_net = icon.FunctionFromVectorField(networks.tallUNet2(dimension=dimension))
 
@@ -227,7 +253,7 @@ def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.L
     if include_last_step:
         inner_net = icon.TwoStepRegistration(inner_net, icon.FunctionFromVectorField(networks.tallUNet2(dimension=dimension)))
 
-    net = GradientICONSparse(inner_net, loss_fn, lmbda=lmbda, use_label=use_label, apply_intensity_conservation_loss=apply_intensity_conservation_loss)
+    net = GradientICONSparse(inner_net, loss_fn, lmbda=lmbda, use_label=use_label, apply_intensity_conservation_loss=apply_intensity_conservation_loss, dice_loss_weight=dice_loss_weight)
     net.assign_identity_map(input_shape)
     return net
 
@@ -241,8 +267,8 @@ def make_sim(similarity):
     else:
         raise ValueError(f"Similarity measure {similarity} not recognized. Choose from [lncc, lncc2, mind].")
 
-def get_multigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False, weights_location=None):
-    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, apply_intensity_conservation_loss=apply_intensity_conservation_loss)
+def get_multigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False, weights_location=None, dice_loss_weight=0.0, loss_function_masking=False):
+    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, apply_intensity_conservation_loss=apply_intensity_conservation_loss, dice_loss_weight=dice_loss_weight, loss_function_masking=loss_function_masking)
     from os.path import exists
     if weights_location is None:
         weights_location = "network_weights/multigradicon1.0/Step_2_final.trch"
@@ -260,8 +286,8 @@ def get_multigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_l
     net.eval()
     return net
 
-def get_unigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False, weights_location=None):
-    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, apply_intensity_conservation_loss=apply_intensity_conservation_loss)
+def get_unigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False, weights_location=None, dice_loss_weight=0.0, loss_function_masking=False):
+    net = make_network(input_shape, include_last_step=True, loss_fn=loss_fn, apply_intensity_conservation_loss=apply_intensity_conservation_loss, dice_loss_weight=dice_loss_weight, loss_function_masking=loss_function_masking)
     from os.path import exists
     if weights_location is None:
         weights_location = "network_weights/unigradicon1.0/Step_2_final.trch"
@@ -278,11 +304,11 @@ def get_unigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_los
     net.eval()
     return net
 
-def get_model_from_model_zoo(model_name="unigradicon", loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False):
+def get_model_from_model_zoo(model_name="unigradicon", loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False, dice_loss_weight=0.0, loss_function_masking=False):
     if model_name == "unigradicon":
-        return get_unigradicon(loss_fn, apply_intensity_conservation_loss)
+        return get_unigradicon(loss_fn, apply_intensity_conservation_loss, dice_loss_weight=dice_loss_weight, loss_function_masking=loss_function_masking)
     elif model_name == "multigradicon":
-        return get_multigradicon(loss_fn, apply_intensity_conservation_loss)
+        return get_multigradicon(loss_fn, apply_intensity_conservation_loss, dice_loss_weight=dice_loss_weight, loss_function_masking=loss_function_masking)
     else:
         raise ValueError(f"Model {model_name} not recognized. Choose from [unigradicon, multigradicon].")
 
@@ -358,6 +384,8 @@ def main():
     parser.add_argument("--intensity_conservation_loss", required=False,
                             action="store_true", help="Enable determinant-based intensity correction in the loss \
                             function for mass-conserving registration. Applicable only for CT modality where -1000 HU represents air.")
+    parser.add_argument("--dice_loss_weight", required=False, type=float, default=0.0,
+                            help="The weight of the Dice loss if segmentations are provided. Default is 0.0 (no Dice loss).")
 
     args = parser.parse_args()
     
@@ -365,7 +393,7 @@ def main():
         if args.fixed_modality != "ct" or args.moving_modality != "ct":
             raise ValueError("Intensity conservation loss is only supported for CT images.")
 
-    net = get_model_from_model_zoo(args.model, make_sim(args.io_sim), args.intensity_conservation_loss)
+    net = get_model_from_model_zoo(args.model, make_sim(args.io_sim), args.intensity_conservation_loss, args.dice_loss_weight, args.loss_function_masking)
 
     fixed = itk.imread(args.fixed)
     moving = itk.imread(args.moving)
@@ -380,7 +408,7 @@ def main():
     else:
         moving_segmentation = None
         
-    if args.loss_function_masking:
+    if args.loss_function_masking or args.dice_loss_weight > 0.0:
         if fixed_segmentation is None or moving_segmentation is None:
             raise ValueError("If loss function masking is enabled, both fixed and moving segmentations must be provided.")
 
@@ -389,7 +417,7 @@ def main():
     else:
         io_iterations = int(args.io_iterations)
 
-    if args.loss_function_masking:
+    if args.loss_function_masking or args.dice_loss_weight > 0.0:
         phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(
             net,
             preprocess(moving, args.moving_modality), 
