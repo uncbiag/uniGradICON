@@ -37,7 +37,8 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             
         if self.dice_loss_weight > 0.0:
             assert mask_A is not None and mask_B is not None, "mask_A and mask_B must be provided when dice_loss_weight>0"
-            num_classes = torch.max(mask_A.max(), mask_B.max()) + 1
+            num_classes = int(torch.max(mask_A.max(), mask_B.max()).item() + 1)
+            
             mask_A_one_hot = F.one_hot(mask_A.long(), num_classes=num_classes)[:,0].permute(0, 4, 1, 2, 3).float()
             mask_B_one_hot = F.one_hot(mask_B.long(), num_classes=num_classes)[:,0].permute(0, 4, 1, 2, 3).float()
 
@@ -235,13 +236,35 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
                 * (self.identity_map.shape[4] - 1)
             )
             return dV
+        
+    def dice_loss(self, pred, target, epsilon=1e-6):
+        """
+        Compute Dice loss between one-hot encoded prediction and target.
+        Args:
+            pred (Tensor): One-hot encoded prediction of shape (N, C, H, W, D)
+            target (Tensor): One-hot encoded ground truth of same shape
+            epsilon (float): Smoothing factor to avoid division by zero
+        Returns:
+            loss (float): Dice loss
+        """
+        assert pred.shape == target.shape, "Pred and target must be the same shape"
+
+        intersection = torch.sum(pred * target, dim=(2,3,4))
+        pred_sum = torch.sum(pred, dim=(2,3,4))
+        target_sum = torch.sum(target, dim=(2,3,4))
+
+        dice_score = (2. * intersection + epsilon) / (pred_sum + target_sum + epsilon)
+
+        dice_loss = 1 - dice_score.mean()
+        print(f"Dice loss: {dice_loss.item()}")
+        return dice_loss
     
     def clean(self):
         del self.phi_AB, self.phi_BA, self.phi_AB_vectorfield, self.phi_BA_vectorfield, self.warped_image_A, self.warped_image_B
         if self.use_label:
             del self.warped_label_A, self.warped_label_B
 
-def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.LNCC(sigma=5), use_label=False, apply_intensity_conservation_loss=False, dice_loss_weight=0.0):
+def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.LNCC(sigma=5), use_label=False, apply_intensity_conservation_loss=False, dice_loss_weight=0.0, loss_function_masking=False):
     dimension = len(input_shape) - 2
     inner_net = icon.FunctionFromVectorField(networks.tallUNet2(dimension=dimension))
 
@@ -253,7 +276,7 @@ def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.L
     if include_last_step:
         inner_net = icon.TwoStepRegistration(inner_net, icon.FunctionFromVectorField(networks.tallUNet2(dimension=dimension)))
 
-    net = GradientICONSparse(inner_net, loss_fn, lmbda=lmbda, use_label=use_label, apply_intensity_conservation_loss=apply_intensity_conservation_loss, dice_loss_weight=dice_loss_weight)
+    net = GradientICONSparse(inner_net, loss_fn, lmbda=lmbda, use_label=use_label, apply_intensity_conservation_loss=apply_intensity_conservation_loss, dice_loss_weight=dice_loss_weight, loss_function_masking=loss_function_masking)
     net.assign_identity_map(input_shape)
     return net
 
@@ -400,11 +423,13 @@ def main():
     
     if args.fixed_segmentation is not None:
         fixed_segmentation = itk.imread(args.fixed_segmentation)
+        fixed_segmentation = itk.CastImageFilter[type(fixed_segmentation), itk.Image[itk.SS, 3]].New()(fixed_segmentation)
     else:
         fixed_segmentation = None
     
     if args.moving_segmentation is not None:
         moving_segmentation = itk.imread(args.moving_segmentation)
+        moving_segmentation = itk.CastImageFilter[type(moving_segmentation), itk.Image[itk.SS, 3]].New()(moving_segmentation)
     else:
         moving_segmentation = None
         
