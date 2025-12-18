@@ -1,0 +1,56 @@
+experiment:
+  name: "multi_seg_mixed_finetune"
+  model: "unigradicon"
+  weights_path: "../network_weights/unigradicon1.0/Step_2_final.trch"
+
+training:
+  batch_size: 3
+  gpus: [0, 1]
+  epochs: 600
+  eval_period: 15
+  save_period: 30
+  learning_rate: 0.00005
+  input_shape: [175, 175, 175]
+  samples_per_epoch: 4000
+  similarity: "lncc"
+  lambda: 1.5
+  dice_loss_weight: 0.3
+  lncc_sigma: 5
+
+datasets:
+  - name: "lung_paired_seg"
+    weight: 0.4
+    type: "paired_with_seg"
+    image_glob: "/path/to/lung/images/*.nii.gz"
+    segmentation_glob: "/path/to/lung/masks/*.nii.gz"
+    match_regex: "case(\\d+)_scan.*\\.nii\\.gz"
+    read_type: "itk"
+    is_ct: true
+    ct_window: [-1000, 1000]
+    maximum_images: null
+    shuffle: true
+  
+  # Unpaired abdomen CT with segmentations (random pairs)
+  - name: "abdomen_unpaired_seg"
+    weight: 0.3
+    type: "unpaired_with_seg"  # Unpaired but with segmentations
+    image_glob: "/path/to/abdomen/images/*.nii.gz"
+    segmentation_glob: "/path/to/abdomen/masks/*.nii.gz"
+    read_type: "itk"
+    is_ct: true
+    ct_window: [-1000, 1000]
+    maximum_images: 80
+    shuffle: true
+  
+  # Unpaired brain MRI with segmentations
+  - name: "brain_unpaired_seg"
+    weight: 0.3
+    type: "unpaired_with_seg"
+    image_glob: "/path/to/brain/images/*.nii.gz"
+    segmentation_glob: "/path/to/brain/masks/*.nii.gz"
+    read_type: "itk"
+    is_ct: false
+    quantile_range: [0.01, 0.99]
+    maximum_images: null
+    shuffle: true
+

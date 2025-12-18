@@ -4,6 +4,7 @@ import footsteps
 import numpy as np
 import torch
 import torch.nn.functional as F
+from collections import namedtuple
 
 import icon_registration as icon
 import icon_registration.network_wrappers as network_wrappers
@@ -11,6 +12,9 @@ import icon_registration.networks as networks
 from icon_registration import config
 from icon_registration.mermaidlite import compute_warped_image_multiNC
 import icon_registration.itk_wrapper
+
+# Extended loss object that includes dice_loss for segmentation-based training
+ICONDiceLoss = namedtuple('ICONDiceLoss', ['all_loss', 'inverse_consistency_loss', 'similarity_loss', 'transform_magnitude', 'flips', 'dice_loss'])
 
 input_shape = [1, 1, 175, 175, 175]
 
@@ -206,13 +210,25 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         transform_magnitude = torch.mean(
             (self.identity_map - self.phi_AB_vectorfield) ** 2
         )
-        return icon.losses.ICONLoss(
-            all_loss,
-            inverse_consistency_loss,
-            similarity_loss,
-            transform_magnitude,
-            icon.losses.flips(self.phi_BA_vectorfield),
-        )
+        
+        # Return extended loss with dice_loss if dice_loss_weight > 0, otherwise standard ICONLoss
+        if self.dice_loss_weight > 0.0:
+            return ICONDiceLoss(
+                all_loss,
+                inverse_consistency_loss,
+                similarity_loss,
+                transform_magnitude,
+                icon.losses.flips(self.phi_BA_vectorfield),
+                dice_loss if isinstance(dice_loss, torch.Tensor) else torch.tensor(dice_loss),
+            )
+        else:
+            return icon.losses.ICONLoss(
+                all_loss,
+                inverse_consistency_loss,
+                similarity_loss,
+                transform_magnitude,
+                icon.losses.flips(self.phi_BA_vectorfield),
+            )
 
     def compute_jacobian_determinant(self, phi):
         if len(phi.size()) == 4:
@@ -256,7 +272,6 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         dice_score = (2. * intersection + epsilon) / (pred_sum + target_sum + epsilon)
 
         dice_loss = 1 - dice_score.mean()
-        print(f"Dice loss: {dice_loss.item()}")
         return dice_loss
     
     def clean(self):

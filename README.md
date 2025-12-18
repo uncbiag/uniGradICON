@@ -82,6 +82,13 @@ This loss function ensures proper intensity adjustments for registration tasks r
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --intensity_conservation_loss
 ```
 
+To optimize using Dice loss for improved anatomical structure alignment, provide segmentations and set a Dice loss weight. When enabled, the system converts the segmentations to one-hot encoding, warps them along with the images, and adds a weighted Dice loss term to the optimization objective. This encourages better alignment of corresponding anatomical structures between images.
+
+The total loss becomes:  
+`L_total = λ × L_inverse_consistency + L_similarity + dice_loss_weight × L_dice`.
+
+This feature is particularly useful for organ registration, brain structure alignment, and other tasks where anatomical correspondence is critical. Note that the model expects segmentations to be single-channel images with the same shape as the input images. The segmentations are automatically converted to one-hot encoding.
+
 To warp an image
 ```
 unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_file_name]  --transform trans.hdf5 --warped_moving_out warped.nii.gz --linear
@@ -261,6 +268,10 @@ A Slicer extensions is available [here](https://github.com/uncbiag/SlicerUniGrad
         <td>CT/CBCT</td>
     </tr>
 </table>
+
+## Finetuning
+
+You can finetune the `uniGradICON` model on your own data using the `finetuning/README.md` guide.
 
 ## Get involved
 
