@@ -21,7 +21,7 @@ cd uniGradICON/finetuning
 python finetune.py --config configs/config.yaml
 ```
 
-## 📖 Step-by-Step Guide
+## Step-by-Step Guide
 
 ### Step 1: Prepare Your Data
 
@@ -156,7 +156,7 @@ unigradicon-register \
 | `use_cache` | bool | Enable/disable caching | true |
 | `is_ct` | bool | CT vs MRI preprocessing | false |
 
-## 🗂️ Dataset Types
+## Dataset Types
 
 ### 1. Unpaired Dataset (`unpaired`)
 Random pairs of images from different subjects.
@@ -218,7 +218,7 @@ training:
   dice_loss_weight: 0.3
 ```
 
-## 🔬 Advanced Features
+## Advanced Features
 
 ### Multi-Dataset Training
 
@@ -315,7 +315,7 @@ datasets:
     ct_window: [-1000, 1000]  # HU windowing
 ```
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### "No images found"
 - Check your `image_glob` pattern is correct

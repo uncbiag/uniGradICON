@@ -89,6 +89,10 @@ The total loss becomes:
 
 This feature is particularly useful for organ registration, brain structure alignment, and other tasks where anatomical correspondence is critical. Note that the model expects segmentations to be single-channel images with the same shape as the input images. The segmentations are automatically converted to one-hot encoding.
 
+```
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --dice_loss_weight 0.1
+```
+
 To warp an image
 ```
 unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_file_name]  --transform trans.hdf5 --warped_moving_out warped.nii.gz --linear
@@ -276,8 +280,6 @@ You can finetune the `uniGradICON` model on your own data using the `finetuning/
 ## Get involved
 
 Our goal is to continuously improve the `uniGradICON` model, e.g., by training on more datasets with additional diversity. Feel free to point us to datasets that should be included or let us know if you want to help with future developments.
-
-
 
 ## Visualization
 
