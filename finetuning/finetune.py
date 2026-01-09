@@ -400,14 +400,10 @@ def finetune_multi_segmentation(input_shape, data_loader, val_data_loaders_dict,
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Multi-dataset finetuning for uniGradICON")
-    parser.add_argument("--config", type=str, required=True, help="Path to YAML config file for multi-dataset training")
+    parser = argparse.ArgumentParser(description="Finetuning for uniGradICON")
+    parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
     
     args = parser.parse_args()
-    
-    print("=" * 60)
-    print("MULTI-DATASET FINETUNING")
-    print("=" * 60)
     
     import multi_dataset_loader
     

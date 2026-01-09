@@ -18,44 +18,33 @@ pip install .
 
 cd uniGradICON/finetuning
 # Run with example config
-python finetune.py --config configs/config.yaml
+python finetune.py --config configs/config_json_example.yaml
 ```
 
 ## Step-by-Step Guide
 
 ### Step 1: Prepare Your Data
 
-Organize your medical images in a directory structure. The system uses glob patterns to find images:
+Organize your data and create a JSON file to define your datasets. All datasets use a consistent JSON format with a `data` list.
 
-```
-/path/to/data/
-├── patient001.nii.gz
-├── patient002.nii.gz
-├── patient003.nii.gz
-└── ...
-```
-
-For paired datasets (same patient, different timepoints):
-```
-/path/to/data/
-├── patient001_t0.nii.gz
-├── patient001_t1.nii.gz
-├── patient002_t0.nii.gz
-├── patient002_t1.nii.gz
-└── ...
+**Example `dataset.json` for unpaired data:**
+```json
+{
+  "data": [
+    {"image": "/path/to/img1.nii.gz"},
+    {"image": "/path/to/img2.nii.gz"}
+  ]
+}
 ```
 
-For segmentation-based training:
-```
-/path/to/images/
-├── patient001.nii.gz
-├── patient002.nii.gz
-└── ...
-
-/path/to/segmentations/
-├── patient001_seg.nii.gz
-├── patient002_seg.nii.gz
-└── ...
+**Example `dataset.json` for paired data:**
+```json
+{
+  "data": [
+    {"image": "/path/p1_t0.nii.gz", "subject_id": "p1"},
+    {"image": "/path/p1_t1.nii.gz", "subject_id": "p1"}
+  ]
+}
 ```
 
 ### Step 2: Create a Configuration File
@@ -86,7 +75,7 @@ datasets:
   - name: "my_dataset"
     weight: 1.0  # Sampling weight (must sum to 1.0 across all datasets)
     type: "unpaired"  # See Dataset Types below
-    image_glob: "/path/to/data/*.nii.gz"
+    json_file: "configs/my_dataset.json"
     maximum_images: null  # Optional: limit number of images
     shuffle: true
     is_ct: false  # Set to true for CT images
@@ -148,10 +137,7 @@ unigradicon-register \
 | `name` | str | Dataset identifier | ✓ |
 | `weight` | float | Sampling weight | ✓ |
 | `type` | str | Dataset type (see below) | ✓ |
-| `image_glob` | str | Glob pattern for images | ✓ |
-| `match_regex` | str | Regex for pairing (paired types) | Conditional |
-| `segmentation_glob` | str | Glob for segmentations (seg types) | Conditional |
-| `seg_match_regex` | str | Regex for image-seg matching | Optional |
+| `json_file` | str | Path to JSON dataset definition | ✓ |
 | `maximum_images` | int | Limit number of images | Optional |
 | `use_cache` | bool | Enable/disable caching | true |
 | `is_ct` | bool | CT vs MRI preprocessing | false |
@@ -165,23 +151,40 @@ Random pairs of images from different subjects.
 datasets:
   - name: "brain_mri"
     type: "unpaired"
-    image_glob: "/data/brain/*.nii.gz"
+    json_file: "configs/brain_mri.json"
     weight: 1.0
 ```
 
+**JSON Format:**
+```json
+{
+  "data": [
+    {"image": "/path/to/img1.nii.gz"},
+    {"image": "/path/to/img2.nii.gz"}
+  ]
+}
+```
+
 ### 2. Paired Dataset (`paired`)
-Matched pairs of images from the same subject (e.g., different timepoints).
+Matched pairs of images from the same subject.
 
 ```yaml
 datasets:
   - name: "lung_followup"
     type: "paired"
-    image_glob: "/data/lung/*_t*.nii.gz"
-    match_regex: "patient(\\d+)_t"  # Groups by patient ID
+    json_file: "configs/lung_pairs.json"
     weight: 1.0
 ```
 
-**Note:** The `match_regex` should capture a group that identifies the subject. Images with the same group ID will be paired together.
+**JSON Format:**
+```json
+{
+  "data": [
+    {"image": "/path/p1_t0.nii.gz", "subject_id": "p1"},
+    {"image": "/path/p1_t1.nii.gz", "subject_id": "p1"}
+  ]
+}
+```
 
 ### 3. Unpaired with Segmentation (`unpaired_with_seg`)
 Random pairs with segmentation guidance using Dice loss.
@@ -190,16 +193,18 @@ Random pairs with segmentation guidance using Dice loss.
 datasets:
   - name: "brain_structures"
     type: "unpaired_with_seg"
-    image_glob: "/data/images/*.nii.gz"
-    segmentation_glob: "/data/segmentations/*_seg.nii.gz"
-    seg_match_regex: "(\\d+)\\.nii"  # Extract subject ID
+    json_file: "configs/brain_seg.json"
     weight: 1.0
-
-training:
-  dice_loss_weight: 0.3
 ```
 
-**Note:** Only images with matching segmentations will be loaded. The system automatically filters images.
+**JSON Format:**
+```json
+{
+  "data": [
+    {"image": "/path/img1.nii.gz", "segmentation": "/path/seg1.nii.gz"}
+  ]
+}
+```
 
 ### 4. Paired with Segmentation (`paired_with_seg`)
 Paired images with segmentation guidance.
@@ -208,14 +213,18 @@ Paired images with segmentation guidance.
 datasets:
   - name: "cardiac_phases"
     type: "paired_with_seg"
-    image_glob: "/data/cardiac/*_phase*.nii.gz"
-    segmentation_glob: "/data/cardiac/*_seg.nii.gz"
-    match_regex: "patient(\\d+)_phase"  # For pairing images
-    seg_match_regex: "patient(\\d+)_"   # For matching segmentations
+    json_file: "configs/cardiac.json"
     weight: 1.0
+```
 
-training:
-  dice_loss_weight: 0.3
+**JSON Format:**
+```json
+{
+  "data": [
+    {"image": "/path/p1_t0.nii.gz", "segmentation": "/path/p1_t0_seg.nii.gz", "subject_id": "p1"},
+    {"image": "/path/p1_t1.nii.gz", "segmentation": "/path/p1_t1_seg.nii.gz", "subject_id": "p1"}
+  ]
+}
 ```
 
 ## Advanced Features
@@ -227,26 +236,24 @@ Train on multiple datasets simultaneously with weighted sampling:
 ```yaml
 datasets:
   - name: "brain_t1"
-    weight: 0.4  # 40% of samples from this dataset
+    weight: 0.4
     type: "unpaired"
-    image_glob: "/data/brain_t1/*.nii.gz"
+    json_file: "configs/brain_t1.json"
   
   - name: "brain_t2"
-    weight: 0.3  # 30% of samples
+    weight: 0.3
     type: "unpaired"
-    image_glob: "/data/brain_t2/*.nii.gz"
+    json_file: "configs/brain_t2.json"
   
   - name: "lung_ct"
-    weight: 0.3  # 30% of samples
+    weight: 0.3
     type: "unpaired"
-    image_glob: "/data/lung/*.nii.gz"
+    json_file: "configs/lung_ct.json"
     is_ct: true
     ct_window: [-1000, 1000]
 ```
 
 **Note:** Weights must sum to 1.0.
-
-You can find examples in the `configs/` directory.
 
 ### Auto-Download Pretrained Weights
 
@@ -291,7 +298,7 @@ For debugging or frequently changing data:
 datasets:
   - name: "test_dataset"
     type: "unpaired"
-    image_glob: "/data/*.nii.gz"
+    json_file: "configs/test.json"
     use_cache: false  # Reload images every time
 ```
 
@@ -317,15 +324,12 @@ datasets:
 
 ## Troubleshooting
 
-### "No images found"
-- Check your `image_glob` pattern is correct
-- Use absolute paths, not relative paths
-- Test with: `ls /your/path/*.nii.gz`
+### "JSON file not found"
+- Check that your `json_file` path is correct and accessible.
+- Use absolute paths to avoid confusion.
 
-### "No segmentations found" or "Filtered to 0/N images"
-- Verify `seg_match_regex` correctly extracts subject IDs from image paths
-- Check that segmentation files exist for your images
-- Print extracted IDs: `python -c "import re; print(re.search('your_regex', 'your_path').group(1))"`
+### "Data must be provided"
+- Ensure your JSON file contains the top-level `data` key.
 
 ### "Weights must sum to 1.0"
 - Check all dataset `weight` values sum to 1.0
@@ -335,5 +339,3 @@ datasets:
 - Set `use_cache: false`
 - Delete old caches: `rm -rf results/*_cache`
 - Use `maximum_images` to limit dataset size
-
-

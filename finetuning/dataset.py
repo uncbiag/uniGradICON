@@ -1,10 +1,9 @@
 import torch
 import numpy as np
-import re as regex
+import json
 import collections
 from tqdm import tqdm
 import random
-import glob
 import os
 import footsteps
 import itk
@@ -27,7 +26,7 @@ class Dataset:
     def __init__(self, 
                  input_shape: Tuple[int, ...],
                  name: str,
-                 image_glob: str,
+                 data: List[Dict[str, str]],
                  read_type: str = "itk",
                  cache_filename: Optional[str] = None,
                  maximum_images: Optional[int] = None,
@@ -39,12 +38,15 @@ class Dataset:
         
         self.read_type = read_type
         self.name = name
-        self.image_glob = image_glob
+        self.data = data
         self.input_shape = input_shape
         self.is_ct = is_ct
         self.ct_window = ct_window
         self.quantile_range = quantile_range
         self.use_cache = use_cache
+        
+        if not data:
+            raise ValueError(f"Dataset {name}: 'data' must be provided (from JSON source)")
         
         if read_type == "itk":
             self.read_image = self.read_image_itk
@@ -84,7 +86,6 @@ class Dataset:
             torch.save(
                 {
                     "name": self.name,
-                    "image_glob": self.image_glob,
                     "maximum_images": maximum_images,
                     "store": self.store,
                     "read_type": self.read_type,
@@ -101,7 +102,6 @@ class Dataset:
                 
                 assert self.name == loaded_cache["name"]
                 assert maximum_images == loaded_cache["maximum_images"]
-                assert self.image_glob == loaded_cache["image_glob"]
                 assert self.read_type == loaded_cache["read_type"]
                 assert self.is_ct == loaded_cache["is_ct"]
                 if self.is_ct:
@@ -128,7 +128,6 @@ class Dataset:
                 torch.save(
                     {
                         "name": self.name,
-                        "image_glob": self.image_glob,
                         "maximum_images": maximum_images,
                         "store": self.store,
                         "read_type": self.read_type,
@@ -143,7 +142,7 @@ class Dataset:
         print("Image count: ", len(self.keys))
 
     def get_image_paths(self) -> List[str]:
-        return list(glob.glob(self.image_glob))
+        return [item['image'] for item in self.data]
 
     def read_image_sitk(self, path: str):
         itk_image = SimpleITK.ReadImage(path)
@@ -238,20 +237,20 @@ class PairedDataset(Dataset):
         self,
         input_shape,
         name: str,
-        image_glob: str,
+        data: List[Dict[str, str]],
         cache_filename=None,
         maximum_images=None,
-        match_regex=None,
         is_ct: bool = False,
         ct_window: Tuple[float, float] = (-1000, 1000),
         quantile_range: Tuple[float, float] = (0.01, 0.99),
         read_type: str = "itk",
-        shuffle: bool = False,      
+        shuffle: bool = False,
+        use_cache: bool = True,
     ):
         super().__init__(
             input_shape,
             name,
-            image_glob,
+            data,
             cache_filename=cache_filename,
             maximum_images=maximum_images,
             is_ct=is_ct,
@@ -261,23 +260,24 @@ class PairedDataset(Dataset):
             shuffle=shuffle,
             use_cache=use_cache,
         )
-        if match_regex == None:
-            raise NotImplementedError()
 
-        self.pair_lookup = collections.defaultdict(lambda: [])
+        self.pair_lookup = collections.defaultdict(list)
         self.pair_keys = {}
 
-        for key in self.store.keys():
-            pair_key = regex.search(match_regex, key).group(1)
-            self.pair_keys[key] = pair_key
-            self.pair_lookup[pair_key].append(key)
+        for item in self.data:
+            path = item['image']
+            subject_id = item.get('subject_id')
+            if path in self.store and subject_id:
+                self.pair_keys[path] = subject_id
+                self.pair_lookup[subject_id].append(path)
         
-        self.keys = [k for k in self.keys if len(self.pair_lookup[self.pair_keys[k]]) > 1]
+        self.keys = [k for k in self.keys if k in self.pair_keys and len(self.pair_lookup[self.pair_keys[k]]) > 1]
         print("Paired image count: ", len(self.keys))
 
     def get_key_pair(self):
         image_key_1 = random.choice(self.keys)
-        candidates = [k for k in self.pair_lookup[self.pair_keys[image_key_1]] if k != image_key_1]
+        subject_id = self.pair_keys[image_key_1]
+        candidates = [k for k in self.pair_lookup[subject_id] if k != image_key_1]
         image_key_2 = random.choice(candidates)
         return (image_key_1, image_key_2)
 
@@ -285,8 +285,7 @@ class ImageSegmentationDataset(Dataset):
     def __init__(self,
                  input_shape: Tuple[int, ...],
                  name: str,
-                 image_glob: str,
-                 segmentation_glob: str,
+                 data: List[Dict[str, str]],
                  read_type: str = "itk",
                  cache_filename: Optional[str] = None,
                  maximum_images: Optional[int] = None,
@@ -294,25 +293,13 @@ class ImageSegmentationDataset(Dataset):
                  is_ct: bool = False,
                  ct_window: Tuple[float, float] = (-1000, 1000),
                  quantile_range: Tuple[float, float] = (0.01, 0.99),
-                 seg_match_regex: Optional[str] = None,
                  use_cache: bool = True):
         
-        self.segmentation_glob = segmentation_glob
-        self.seg_match_regex = seg_match_regex
-
-        if seg_match_regex:
-            self.segmentation_map: Dict[str, str] = {}
-            for seg_path in glob.glob(self.segmentation_glob):
-                subject_id = os.path.basename(os.path.dirname(seg_path))
-                self.segmentation_map[subject_id] = seg_path
-        else:
-            self.segmentation_map: Dict[str, str] = {
-                os.path.basename(p): p for p in glob.glob(self.segmentation_glob)
-            }
+        self.segmentation_map = {item['image']: item['segmentation'] for item in data}
         
         super().__init__(input_shape=input_shape,
                          name=name,
-                         image_glob=image_glob,
+                         data=data,
                          read_type=read_type,
                          cache_filename=cache_filename,
                          maximum_images=maximum_images,
@@ -329,25 +316,10 @@ class ImageSegmentationDataset(Dataset):
                 print(f"Failed to process segmentation for {path}: {e}")
     
     def get_image_paths(self) -> List[str]:
-        all_paths = sorted(glob.glob(self.image_glob))
-        
-        filtered_paths = []
-        for img_path in all_paths:
-            if self.get_segmentation_path(img_path):
-                filtered_paths.append(img_path)
-        
-        print(f"Filtered to {len(filtered_paths)}/{len(all_paths)} images with segmentations")
-        return filtered_paths
+         return [item['image'] for item in self.data]
 
     def get_segmentation_path(self, image_path: str) -> Optional[str]:
-        if self.seg_match_regex:
-            match = regex.search(self.seg_match_regex, image_path)
-            if match:
-                subject_id = match.group(1)
-                return self.segmentation_map.get(subject_id, None)
-            return None
-        else:
-            return self.segmentation_map.get(os.path.basename(image_path), None)
+         return self.segmentation_map.get(image_path)
 
     def preprocess_segmentation(self, image_path: str) -> torch.Tensor:
         seg_path = self.get_segmentation_path(image_path)
@@ -375,10 +347,7 @@ class PairedImageSegmentationDataset(ImageSegmentationDataset):
     def __init__(self,
                  input_shape: Tuple[int, ...],
                  name: str,
-                 image_glob: str,
-                 segmentation_glob: str,
-                 match_regex: Optional[str] = None,
-                 seg_match_regex: Optional[str] = None,
+                 data: List[Dict[str, str]],
                  read_type: str = "itk",
                  cache_filename: Optional[str] = None,
                  maximum_images: Optional[int] = None,
@@ -387,10 +356,10 @@ class PairedImageSegmentationDataset(ImageSegmentationDataset):
                  ct_window: Tuple[float, float] = (-1000, 1000),
                  quantile_range: Tuple[float, float] = (0.01, 0.99),
                  use_cache: bool = True):
+        
         super().__init__(input_shape=input_shape,
                          name=name,
-                         image_glob=image_glob,
-                         segmentation_glob=segmentation_glob,
+                         data=data,
                          read_type=read_type,
                          cache_filename=cache_filename,
                          maximum_images=maximum_images,
@@ -398,28 +367,25 @@ class PairedImageSegmentationDataset(ImageSegmentationDataset):
                          is_ct=is_ct,
                          ct_window=ct_window,
                          quantile_range=quantile_range,
-                         seg_match_regex=seg_match_regex,
                          use_cache=use_cache)
-
-        if match_regex is None:
-            raise ValueError("match_regex must be provided for PairedImageSegmentationDataset")
 
         self.pair_lookup = collections.defaultdict(list)
         self.pair_keys = {}
         
-        for key in self.store.keys():
-            match = regex.search(match_regex, key)
-            if match:
-                pair_key = match.group(1)
-                self.pair_keys[key] = pair_key
-                self.pair_lookup[pair_key].append(key)
+        for item in self.data:
+            path = item['image']
+            subject_id = item.get('subject_id')
+            if path in self.store and subject_id:
+                self.pair_keys[path] = subject_id
+                self.pair_lookup[subject_id].append(path)
 
-        self.keys = [k for k in self.keys if len(self.pair_lookup[self.pair_keys[k]]) > 1]
+        self.keys = [k for k in self.keys if k in self.pair_keys and len(self.pair_lookup[self.pair_keys[k]]) > 1]
         print("Paired segmentation count:", len(self.keys))
 
     def get_key_pair(self) -> Tuple[str, str]:
         image_key_1 = random.choice(self.keys)
-        candidates = [k for k in self.pair_lookup[self.pair_keys[image_key_1]] if k != image_key_1]
+        subject_id = self.pair_keys[image_key_1]
+        candidates = [k for k in self.pair_lookup[subject_id] if k != image_key_1]
         image_key_2 = random.choice(candidates)
         return (image_key_1, image_key_2)
 

@@ -1,48 +1,32 @@
 experiment:
-  name: "multi_mixed_standard_finetune"
+  name: "example_experiment"
   model: "unigradicon"
-  weights_path: "unigradicon" 
+  weights_path: "../network_weights/unigradicon1.0/Step_2_final.trch"
 
 training:
   batch_size: 4
-  gpus: [0, 1]
-  epochs: 500
+  gpus: [0]
+  epochs: 100
   eval_period: 10
-  save_period: 25
+  save_period: 50
   learning_rate: 0.00005
   input_shape: [175, 175, 175]
-  samples_per_epoch: 4000
   similarity: "lncc"
   lambda: 1.5
-  dice_loss_weight: 0.0
   lncc_sigma: 5
 
 datasets:
-  - name: "cardiac_paired"
-    weight: 0.5
-    type: "paired"
-    image_glob: "/path/to/cardiac/*.nii.gz"
-    match_regex: "(.*)_phase\\d+\\.nii\\.gz"
-    read_type: "itk"
+  - name: "example_dataset"
+    type: "unpaired"
+    json_file: "configs/example_unpaired.json"
+    weight: 1.0 # Weights must sum to 1.0
     is_ct: false
     quantile_range: [0.01, 0.99]
-    maximum_images: null
-    shuffle: true
-  - name: "lung_ct_unpaired"
-    weight: 0.3
-    type: "unpaired"
-    image_glob: "/path/to/lung/ct/*.nii.gz"
-    read_type: "itk"
-    is_ct: true
-    ct_window: [-1000, 1000]
-    maximum_images: null
-    shuffle: true
-  - name: "brain_unpaired"
-    weight: 0.2
-    type: "unpaired"
-    image_glob: "/path/to/brain/mri/*.nii.gz"
-    read_type: "sitk"
-    is_ct: false
-    quantile_range: [0.01, 0.99]
-    maximum_images: 50
-    shuffle: true
+
+  # Example of adding a second dataset (ensure weights sum to 1.0):
+  # - name: "second_dataset"
+  #   type: "unpaired"
+  #   json_file: "configs/another_dataset.json"
+  #   weight: 0.3
+  #   is_ct: true
+  #   ct_window: [-1000, 1000]

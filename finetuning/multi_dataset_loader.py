@@ -111,7 +111,7 @@ def get_dataset_info(config_path: str) -> Dict[str, Any]:
             'name': ds_config['name'],
             'type': ds_config['type'],
             'weight': ds_config.get('weight', 1.0),
-            'image_glob': ds_config['image_glob']
+            'json_file': ds_config['json_file']
         })
     
     return info
