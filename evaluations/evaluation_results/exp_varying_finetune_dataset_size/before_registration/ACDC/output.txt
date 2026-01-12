@@ -1,0 +1,8 @@
+<All keys matched successfully>
+Aggregate:
+dice: 54.94 ± 10.74
+hd95: 9.43 ± 5.62
+flips_percentage_itk: 0.00 ± 0.00
+log_jac_std_itk: 0.00 ± 0.00
+flips_percentage: 0.00 ± 0.00
+log_jac_std: 0.00 ± 0.00

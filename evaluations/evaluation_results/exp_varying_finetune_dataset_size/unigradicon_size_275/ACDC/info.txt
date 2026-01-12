@@ -1,0 +1,2 @@
+Command:
+/autofs/space/tayswift_001/users/lt456/projects/uniGradICONDev/evaluations/ACDCMM_eval.py --weights_path /autofs/space/tayswift_001/users/lt456/projects/uniGradICONDev/results/varying_finetune_dataset_size_cardiac/finetue_cardiac_size_275/checkpoints/network_weights_900 --exp exp_varying_finetune_dataset_size/unigradicon_size_275 --bidirection 1 --ACDC_path /autofs/space/tayswift_001/users/lt456/data/original_data/ACDC --MM_path /autofs/space/tayswift_001/users/lt456/data/original_data/MM_cardiac --io_steps 0

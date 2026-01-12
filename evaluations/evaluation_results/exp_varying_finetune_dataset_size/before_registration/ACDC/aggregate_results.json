@@ -1,0 +1,26 @@
+{
+    "dice": {
+        "mean": 54.94394327666754,
+        "std": 10.74181442094623
+    },
+    "hd95": {
+        "mean": 9.43016058132057,
+        "std": 5.622057675062663
+    },
+    "flips_percentage_itk": {
+        "mean": 0.0,
+        "std": 0.0
+    },
+    "log_jac_std_itk": {
+        "mean": 0.0,
+        "std": 0.0
+    },
+    "flips_percentage": {
+        "mean": 0.0,
+        "std": 0.0
+    },
+    "log_jac_std": {
+        "mean": 0.0,
+        "std": 0.0
+    }
+}
