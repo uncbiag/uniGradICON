@@ -1,0 +1,1 @@
+Install VoxelMorph to run the evaluation scripts in this folder.

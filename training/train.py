@@ -104,6 +104,7 @@ def train(
     step_callback=(lambda net: None),
     unwrapped_net=None,
     data_augmenter=None,
+    start_epochs=0,
 ):
     """A training function intended for long running experiments, with tensorboard logging
     and model checkpoints. Use for medical registration training
@@ -121,7 +122,7 @@ def train(
     )
 
     iteration = 0
-    for epoch in tqdm(range(epochs)):
+    for epoch in tqdm(range(start_epochs, epochs)):
         for moving_image, fixed_image in data_loader:
             moving_image, fixed_image = moving_image.cuda(), fixed_image.cuda()
             if data_augmenter is not None:

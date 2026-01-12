@@ -1,0 +1,2 @@
+Command:
+evaluations/HCP_eval.py --weights_path /playpen-raid2/lin.tian/projects/uniGradICON/pretrained_unigradicon/Step_2_final.trch --device 0 --exp unigradicon_io_50 --io_steps 50

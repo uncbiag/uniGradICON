@@ -1,0 +1,2 @@
+Command:
+evaluations/IXI_eval.py --weights_path /playpen-raid2/lin.tian/projects/uniGradICON/pretrained_unigradicon/Step_2_final.trch --device 0 --exp unigradicon_zeroshot --io_steps 0 --data_folder /playpen-raid2/Data/IXI/IXI_data

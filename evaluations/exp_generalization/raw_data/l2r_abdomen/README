@@ -1,0 +1,4 @@
+This folder contains the raw value of the metrics on l2r_abdomenCTCT dataset.
+The image is processed to have the same shape as the shape used during the training of the models.
+
+A more detailed metrics can be found at ../../evaluation_results/l2r_evaluation_results/l2r_abdomenctct

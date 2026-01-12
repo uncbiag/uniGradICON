@@ -1,0 +1,7 @@
+Aggregate:
+dice: 44.20 ± 14.41
+hd95: 9.45 ± 5.41
+flips_percentage_itk: 1.55 ± 0.59
+log_jac_std_itk: 0.46 ± 0.21
+flips_percentage: 0.01 ± 0.01
+log_jac_std: 0.00 ± 0.00

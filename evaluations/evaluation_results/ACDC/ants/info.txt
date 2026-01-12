@@ -1,0 +1,2 @@
+Command:
+evaluations/comparing_methods/ants/ACDCMM_eval.py --bidirection 1 --ACDC_path /playpen-raid2/lin.tian/data/ACDC --exp ants

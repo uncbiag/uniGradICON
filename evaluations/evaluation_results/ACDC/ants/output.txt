@@ -1,0 +1,5 @@
+Aggregate:
+dice: 60.80 ± 13.82
+hd95: inf ± nan
+flips_percentage: 0.00 ± 0.00
+log_jac_std: 0.02 ± 0.00

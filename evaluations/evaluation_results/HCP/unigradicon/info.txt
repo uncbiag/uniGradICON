@@ -1,0 +1,2 @@
+Command:
+HCP_eval.py --weights_path /playpen-raid2/lin.tian/projects/uniGradICON_journal/evaluations/network_weights/unigradicon1.0/Step_2_final.trch

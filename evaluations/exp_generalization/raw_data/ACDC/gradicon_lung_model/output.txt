@@ -1,0 +1,106 @@
+<All keys matched successfully>
+patient101 mean DICE: 0.7843513169478769 | running DICE: 0.7843513169478769 | Percentage: 1.8658892128279884e-05 | running Per: 1.8658892128279884e-05 
+patient101 inverse mean DICE: 0.8019045233122535 | running DICE: 0.8019045233122535 | Percentage: 1.8658892128279884e-05 | running Per: 1.8658892128279884e-05 
+patient102 mean DICE: 0.5371033754506949 | running DICE: 0.6607273461992859 | Percentage: 5.597667638483965e-05 | running Per: 3.731778425655977e-05 
+patient102 inverse mean DICE: 0.5951443090766233 | running DICE: 0.6985244161944384 | Percentage: 5.597667638483965e-05 | running Per: 3.731778425655977e-05 
+patient103 mean DICE: 0.7220418227969251 | running DICE: 0.6811655050651656 | Percentage: 0.0 | running Per: 2.487852283770651e-05 
+patient103 inverse mean DICE: 0.7534431619128679 | running DICE: 0.7168306647672482 | Percentage: 0.0 | running Per: 2.487852283770651e-05 
+patient104 mean DICE: 0.32562811743871195 | running DICE: 0.5922811581585522 | Percentage: 0.0 | running Per: 1.8658892128279884e-05 
+patient104 inverse mean DICE: 0.3948958804222011 | running DICE: 0.6363469686809864 | Percentage: 0.0 | running Per: 1.8658892128279884e-05 
+patient105 mean DICE: 0.460713068408011 | running DICE: 0.565967540208444 | Percentage: 3.731778425655977e-05 | running Per: 2.239067055393586e-05 
+patient105 inverse mean DICE: 0.4739864796462862 | running DICE: 0.6038748708740463 | Percentage: 3.731778425655977e-05 | running Per: 2.239067055393586e-05 
+patient106 mean DICE: 0.9130996641981746 | running DICE: 0.6238228942067324 | Percentage: 0.0 | running Per: 1.8658892128279884e-05 
+patient106 inverse mean DICE: 0.9156313284708132 | running DICE: 0.6558342804735074 | Percentage: 0.0 | running Per: 1.8658892128279884e-05 
+patient107 mean DICE: 0.5365429331110335 | running DICE: 0.6113543283359182 | Percentage: 0.0 | running Per: 1.5993336109954187e-05 
+patient107 inverse mean DICE: 0.5928275446892664 | running DICE: 0.6468333182186159 | Percentage: 0.0 | running Per: 1.5993336109954187e-05 
+patient108 mean DICE: 0.4286308830599699 | running DICE: 0.5885138976764247 | Percentage: 9.329446064139942e-05 | running Per: 2.565597667638484e-05 
+patient108 inverse mean DICE: 0.46763904080587654 | running DICE: 0.6244340335420235 | Percentage: 9.329446064139942e-05 | running Per: 2.565597667638484e-05 
+patient109 mean DICE: 0.6543668808041614 | running DICE: 0.5958308958017288 | Percentage: 0.0 | running Per: 2.280531260123097e-05 
+patient109 inverse mean DICE: 0.8040022653439866 | running DICE: 0.6443860592977972 | Percentage: 0.0 | running Per: 2.280531260123097e-05 
+patient110 mean DICE: 0.5832287105426652 | running DICE: 0.5945706772758225 | Percentage: 0.0 | running Per: 2.052478134110787e-05 
+patient110 inverse mean DICE: 0.6145598851373705 | running DICE: 0.6414034418817545 | Percentage: 0.0 | running Per: 2.052478134110787e-05 
+patient111 mean DICE: 0.6143570960816186 | running DICE: 0.5963694426218039 | Percentage: 0.0 | running Per: 1.8658892128279884e-05 
+patient111 inverse mean DICE: 0.6763911456697146 | running DICE: 0.6445841422261145 | Percentage: 0.0 | running Per: 1.8658892128279884e-05 
+patient112 mean DICE: 0.6106804748797158 | running DICE: 0.5975620286432966 | Percentage: 1.8658892128279884e-05 | running Per: 1.8658892128279884e-05 
+patient112 inverse mean DICE: 0.6568326921879086 | running DICE: 0.6456048547229306 | Percentage: 1.8658892128279884e-05 | running Per: 1.8658892128279884e-05 
+patient113 mean DICE: 0.8348945243802802 | running DICE: 0.6158183744692184 | Percentage: 0.0 | running Per: 1.7223592733796816e-05 
+patient113 inverse mean DICE: 0.8511883911660657 | running DICE: 0.6614189729108642 | Percentage: 0.0 | running Per: 1.7223592733796816e-05 
+patient114 mean DICE: 0.5907235271116568 | running DICE: 0.6140258853722497 | Percentage: 0.0 | running Per: 1.5993336109954187e-05 
+patient114 inverse mean DICE: 0.63102255911221 | running DICE: 0.6592478004966746 | Percentage: 0.0 | running Per: 1.5993336109954187e-05 
+patient115 mean DICE: 0.6778482819571985 | running DICE: 0.6182807118112462 | Percentage: 0.0 | running Per: 1.4927113702623906e-05 
+patient115 inverse mean DICE: 0.7117433034898654 | running DICE: 0.6627475006962206 | Percentage: 0.0 | running Per: 1.4927113702623906e-05 
+patient116 mean DICE: 0.5177783387730646 | running DICE: 0.6119993134963599 | Percentage: 0.0 | running Per: 1.3994169096209913e-05 
+patient116 inverse mean DICE: 0.5549284946339167 | running DICE: 0.6560088128173266 | Percentage: 0.0 | running Per: 1.3994169096209913e-05 
+patient117 mean DICE: 0.7024376649512799 | running DICE: 0.6173192165231199 | Percentage: 0.0 | running Per: 1.31709826787858e-05 
+patient117 inverse mean DICE: 0.7405161389749496 | running DICE: 0.6609798320030692 | Percentage: 0.0 | running Per: 1.31709826787858e-05 
+patient118 mean DICE: 0.7344447495831612 | running DICE: 0.6238261905820112 | Percentage: 0.0 | running Per: 1.2439261418853255e-05 
+patient118 inverse mean DICE: 0.7567807468244592 | running DICE: 0.6663021050487019 | Percentage: 0.0 | running Per: 1.2439261418853255e-05 
+patient119 mean DICE: 0.5110177990209864 | running DICE: 0.6178889068156415 | Percentage: 0.0 | running Per: 1.1784563449439927e-05 
+patient119 inverse mean DICE: 0.5999578967519389 | running DICE: 0.6628103046120302 | Percentage: 0.0 | running Per: 1.1784563449439927e-05 
+patient120 mean DICE: 0.7911241340502878 | running DICE: 0.6265506681773737 | Percentage: 0.0 | running Per: 1.119533527696793e-05 
+patient120 inverse mean DICE: 0.8138978971771064 | running DICE: 0.670364684240284 | Percentage: 0.0 | running Per: 1.119533527696793e-05 
+patient121 mean DICE: 0.5784572352357946 | running DICE: 0.6242605047039651 | Percentage: 0.0 | running Per: 1.066222407330279e-05 
+patient121 inverse mean DICE: 0.6701944181636401 | running DICE: 0.6703565763318723 | Percentage: 0.0 | running Per: 1.066222407330279e-05 
+patient122 mean DICE: 0.7422579782004338 | running DICE: 0.6296240262265319 | Percentage: 0.0 | running Per: 1.01775775245163e-05 
+patient122 inverse mean DICE: 0.7758467876565955 | running DICE: 0.6751515859375415 | Percentage: 0.0 | running Per: 1.01775775245163e-05 
+patient123 mean DICE: 0.5679435438328876 | running DICE: 0.6269422661224604 | Percentage: 0.0 | running Per: 9.735074153885156e-06 
+patient123 inverse mean DICE: 0.6099299625236813 | running DICE: 0.6723158631804173 | Percentage: 0.0 | running Per: 9.735074153885156e-06 
+patient124 mean DICE: 0.6561013557830421 | running DICE: 0.6281572281916513 | Percentage: 1.8658892128279884e-05 | running Per: 1.0106899902818272e-05 
+patient124 inverse mean DICE: 0.7012512150093467 | running DICE: 0.6735215028399559 | Percentage: 1.8658892128279884e-05 | running Per: 1.0106899902818272e-05 
+patient125 mean DICE: 0.5556522457347342 | running DICE: 0.6252570288933746 | Percentage: 0.0 | running Per: 9.70262390670554e-06 
+patient125 inverse mean DICE: 0.6092963064297882 | running DICE: 0.6709524949835491 | Percentage: 0.0 | running Per: 9.70262390670554e-06 
+patient126 mean DICE: 0.6580763744484582 | running DICE: 0.6265193114147241 | Percentage: 0.0 | running Per: 9.329446064139942e-06 
+patient126 inverse mean DICE: 0.6989974369473778 | running DICE: 0.6720311465975425 | Percentage: 0.0 | running Per: 9.329446064139942e-06 
+patient127 mean DICE: 0.6586401196593124 | running DICE: 0.6277089709793385 | Percentage: 0.0002052478134110787 | running Per: 1.658568189180434e-05 
+patient127 inverse mean DICE: 0.7233192963912877 | running DICE: 0.6739307077010146 | Percentage: 0.0002052478134110787 | running Per: 1.658568189180434e-05 
+patient128 mean DICE: 0.536880988649724 | running DICE: 0.6244651144675666 | Percentage: 0.0 | running Per: 1.5993336109954187e-05 
+patient128 inverse mean DICE: 0.6124272950267567 | running DICE: 0.6717341572483625 | Percentage: 0.0 | running Per: 1.5993336109954187e-05 
+patient129 mean DICE: 0.6358258198675029 | running DICE: 0.6248568629296333 | Percentage: 1.8658892128279884e-05 | running Per: 1.608525183472404e-05 
+patient129 inverse mean DICE: 0.6719653095670255 | running DICE: 0.6717421280179715 | Percentage: 1.8658892128279884e-05 | running Per: 1.608525183472404e-05 
+patient130 mean DICE: 0.5667849429924484 | running DICE: 0.6229211322650605 | Percentage: 0.0 | running Per: 1.554907677356657e-05 
+patient130 inverse mean DICE: 0.6315979711390902 | running DICE: 0.6704039894553422 | Percentage: 0.0 | running Per: 1.554907677356657e-05 
+patient131 mean DICE: 0.8656083125141167 | running DICE: 0.630749750982772 | Percentage: 0.0 | running Per: 1.5047493651838616e-05 
+patient131 inverse mean DICE: 0.8668081262103174 | running DICE: 0.6767396067700188 | Percentage: 0.0 | running Per: 1.5047493651838616e-05 
+patient132 mean DICE: 0.8939825736482696 | running DICE: 0.6389757766910686 | Percentage: 0.0 | running Per: 1.457725947521866e-05 
+patient132 inverse mean DICE: 0.8959873167828145 | running DICE: 0.6835910977079188 | Percentage: 0.0 | running Per: 1.457725947521866e-05 
+patient133 mean DICE: 0.8356065375184577 | running DICE: 0.644934284594929 | Percentage: 0.0 | running Per: 1.4135524339605972e-05 
+patient133 inverse mean DICE: 0.8447592415546757 | running DICE: 0.6884749808547903 | Percentage: 0.0 | running Per: 1.4135524339605972e-05 
+patient134 mean DICE: 0.6408594041512485 | running DICE: 0.6448144351701148 | Percentage: 0.0 | running Per: 1.371977362373521e-05 
+patient134 inverse mean DICE: 0.688537100475673 | running DICE: 0.6884768079024634 | Percentage: 0.0 | running Per: 1.371977362373521e-05 
+patient135 mean DICE: 0.7894833703595973 | running DICE: 0.6489478333183858 | Percentage: 0.0 | running Per: 1.3327780091628489e-05 
+patient135 inverse mean DICE: 0.818130840847085 | running DICE: 0.6921812088437382 | Percentage: 0.0 | running Per: 1.3327780091628489e-05 
+patient136 mean DICE: 0.7432037641891504 | running DICE: 0.6515660536203515 | Percentage: 3.731778425655977e-05 | running Per: 1.3994169096209913e-05 
+patient136 inverse mean DICE: 0.7552231230621195 | running DICE: 0.6939323731275822 | Percentage: 3.731778425655977e-05 | running Per: 1.3994169096209913e-05 
+patient137 mean DICE: 0.6952191514983143 | running DICE: 0.6527458670765126 | Percentage: 5.597667638483965e-05 | running Per: 1.5128831455362068e-05 
+patient137 inverse mean DICE: 0.7323753783170289 | running DICE: 0.6949713732678375 | Percentage: 5.597667638483965e-05 | running Per: 1.5128831455362068e-05 
+patient138 mean DICE: 0.6522784206262617 | running DICE: 0.6527335658541377 | Percentage: 0.0 | running Per: 1.4730704311799908e-05 
+patient138 inverse mean DICE: 0.6840600085453529 | running DICE: 0.69468423209093 | Percentage: 0.0 | running Per: 1.4730704311799908e-05 
+patient139 mean DICE: 0.5454733907557869 | running DICE: 0.64998330495418 | Percentage: 0.0 | running Per: 1.4352993944830679e-05 
+patient139 inverse mean DICE: 0.590888801709473 | running DICE: 0.6920228107990978 | Percentage: 0.0 | running Per: 1.4352993944830679e-05 
+patient140 mean DICE: 0.5623143005918829 | running DICE: 0.6477915798451225 | Percentage: 0.00014927113702623907 | running Per: 1.772594752186589e-05 
+patient140 inverse mean DICE: 0.6145268688271409 | running DICE: 0.6900854122497988 | Percentage: 0.00014927113702623907 | running Per: 1.772594752186589e-05 
+patient141 mean DICE: 0.5251638457710089 | running DICE: 0.6448006595018514 | Percentage: 0.0 | running Per: 1.7293607338405745e-05 
+patient141 inverse mean DICE: 0.590477733366118 | running DICE: 0.68765595666727 | Percentage: 0.0 | running Per: 1.7293607338405745e-05 
+patient142 mean DICE: 0.4585680860348644 | running DICE: 0.6403665506097803 | Percentage: 0.0 | running Per: 1.6881854782729417e-05 
+patient142 inverse mean DICE: 0.4960835241259924 | running DICE: 0.68309470827343 | Percentage: 0.0 | running Per: 1.6881854782729417e-05 
+patient143 mean DICE: 0.7193939037853164 | running DICE: 0.6422043960324672 | Percentage: 0.0 | running Per: 1.6489253508712457e-05 
+patient143 inverse mean DICE: 0.768443663175645 | running DICE: 0.6850795676897606 | Percentage: 0.0 | running Per: 1.6489253508712457e-05 
+patient144 mean DICE: 0.565092432543819 | running DICE: 0.6404518514077252 | Percentage: 0.0 | running Per: 1.6114497747150807e-05 
+patient144 inverse mean DICE: 0.5964476695671636 | running DICE: 0.6830652063687924 | Percentage: 0.0 | running Per: 1.6114497747150807e-05 
+patient145 mean DICE: 0.7991470059995702 | running DICE: 0.6439784103986551 | Percentage: 0.0 | running Per: 1.5756397797214124e-05 
+patient145 inverse mean DICE: 0.8105108298896008 | running DICE: 0.6858973313359216 | Percentage: 0.0 | running Per: 1.5756397797214124e-05 
+patient146 mean DICE: 0.41474550411520616 | running DICE: 0.6389950863490149 | Percentage: 0.0 | running Per: 1.5413867410318163e-05 
+patient146 inverse mean DICE: 0.49541414392730115 | running DICE: 0.6817563924792125 | Percentage: 0.0 | running Per: 1.5413867410318163e-05 
+patient147 mean DICE: 0.6339651909323033 | running DICE: 0.6388880672975955 | Percentage: 0.0001119533527696793 | running Per: 1.7467899013708825e-05 
+patient147 inverse mean DICE: 0.6719412217696901 | running DICE: 0.681547559059861 | Percentage: 0.0001119533527696793 | running Per: 1.7467899013708825e-05 
+patient148 mean DICE: 0.8331424110230293 | running DICE: 0.6429350327918754 | Percentage: 0.0 | running Per: 1.7103984450923225e-05 
+patient148 inverse mean DICE: 0.8325248183466581 | running DICE: 0.6846929186283358 | Percentage: 0.0 | running Per: 1.7103984450923225e-05 
+patient149 mean DICE: 0.7200712195817042 | running DICE: 0.6445092406855453 | Percentage: 0.0 | running Per: 1.6754923543761526e-05 
+patient149 inverse mean DICE: 0.7452639802412838 | running DICE: 0.6859290627428858 | Percentage: 0.0 | running Per: 1.6754923543761526e-05 
+patient150 mean DICE: 0.45105691172419676 | running DICE: 0.6406401941063183 | Percentage: 0.0 | running Per: 1.6419825072886297e-05 
+patient150 inverse mean DICE: 0.5194528502185691 | running DICE: 0.6825995384923995 | Percentage: 0.0 | running Per: 1.6419825072886297e-05 
+Mean DICE
+DICE before registration: 0.5800751346053203
+Final DICE: 0.6406401941063183 | final percentage of negative jacobian: 1.6419825072886297e-05
+Final DICE inverse: 0.6825995384923995 | final percentage of negative jacobian inverse: 1.6419825072886297e-05
+Final DICE (w/ two directions): (0.661619866299359 | final percentage of negative jacobian: 1.6419825072886297e-05)

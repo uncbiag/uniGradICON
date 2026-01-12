@@ -1,0 +1,2 @@
+Command:
+evaluations/ACDCMM_eval.py --weights_path /playpen-raid2/lin.tian/projects/uniGradICON/pretrained_unigradicon/Step_2_final.trch --device 3 --bidirection 1 --ACDC_path /playpen-raid2/lin.tian/data/ACDC --exp unigradicon_zeroshot --io_steps 0

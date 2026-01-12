@@ -1,0 +1,2 @@
+Command:
+evaluations/comparing_methods/vm/OAI_eval.py --weights_path /playpen-ssd/lin.tian/results/unigradicon/comparing_methods/vm/run-9/checkpoints/0800.pt --exp comparing_methods/vm_foundation_model/ --device 1

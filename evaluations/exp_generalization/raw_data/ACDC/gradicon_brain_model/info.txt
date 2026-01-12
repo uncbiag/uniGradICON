@@ -1,0 +1,3 @@
+Command:
+/playpen-raid2/lin.tian/projects/uniGradICON/evaluations/generalization/scripts/ACDC_eval.py --weights_path /playpen-raid2/lin.tian/projects/icon_lung/ICON/network_weights/brain_model/brain_model_weights.trch --io_steps 0 --device 0 --exp generalization_test_v2/brain_model/eval_on_ACDC --model_type brain --bidirection 1
+

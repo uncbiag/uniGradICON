@@ -1,0 +1,19 @@
+{
+    "_comment": "This file is generated manually to exclude the entry of ACDC.patient111.ES_ED. Because its hd95 is Inf",
+    "dice": {
+        "mean": 61.39677384,
+        "std": 12.60748699
+    },
+    "hd95": {
+        "mean": 4.874487474,
+        "std": 1.698780134
+    },
+    "flips_percentage": {
+        "mean": 0.0,
+        "std": 0.0
+    },
+    "log_jac_std": {
+        "mean": 0.01498229,
+        "std": 0.003807913
+    }
+}

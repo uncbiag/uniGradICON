@@ -1,0 +1,13 @@
+Aggregate:
+insp_to_exp:
+  mTRE: 22.08 ± 5.69
+  flips_percentage_itk: 0.00 ± 0.00
+  log_jac_std_itk: 0.06 ± 0.01
+  flips_percentage: 0.00 ± 0.00
+  log_jac_std: 0.00 ± 0.00
+exp_to_insp:
+  mTRE: 19.47 ± 4.94
+  flips_percentage_itk: 0.00 ± 0.00
+  log_jac_std_itk: 0.05 ± 0.01
+  flips_percentage: 0.00 ± 0.00
+  log_jac_std: 0.00 ± 0.00

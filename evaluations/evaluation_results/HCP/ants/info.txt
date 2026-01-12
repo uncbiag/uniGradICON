@@ -1,0 +1,3 @@
+Command:
+evaluations/comparing_methods/ants/HCP_eval.py --exp ants
+

@@ -1,0 +1,2 @@
+Command:
+/playpen-raid2/lin.tian/projects/uniGradICON/evaluations/generalization/scripts/ACDC_eval.py --weights_path /playpen-raid2/lin.tian/projects/uniGradICON/pretrained_unigradicon/on_threedatasets/Step_2_final.trch --io_steps 0 --device 0 --exp generalization_test_v2/unigradicon(three_dataset)_model/eval_on_ACDC --model_type unigradicon(three_dataset) --bidirection 1

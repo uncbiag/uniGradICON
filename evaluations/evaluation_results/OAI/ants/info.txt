@@ -1,0 +1,2 @@
+Command:
+evaluations/comparing_methods/ants/OAI_eval.py --exp ants
