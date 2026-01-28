@@ -11,14 +11,16 @@ This guide shows you how to finetune uniGradICON on your own datasets using conf
 
 ## 🚀 Quick Start
 
-```bash
-# Navigate to finetuning directory
-cd uniGradICON/
-pip install .
+**Install (PyPI or source):**
+- PyPI: `pip install unigradicon`
+- Dev/source: `pip install -e .` from the repo root
 
-cd uniGradICON/finetuning
-# Run with example config
-python finetune.py --config configs/config_json_example.yaml
+```bash
+# Run with your config
+unigradicon-finetune --config /path/to/your_config.yaml
+
+# Example config path (in repo checkout)
+python -m unigradicon.finetuning.finetune --config src/unigradicon/finetuning/configs/config.yaml
 ```
 
 ## Step-by-Step Guide
@@ -52,8 +54,10 @@ Organize your data and create a JSON file to define your datasets. All datasets 
 Create a YAML file (e.g., `my_config.yaml`) in the `configs/` directory:
 
 ```yaml
-experiment_name: "my_finetuning_experiment"
-model: "unigradicon"  # or "multigradicon"
+experiment:
+  name: "my_finetuning_experiment"
+  model: "unigradicon"  # or "multigradicon"
+  weights_path: "unigradicon"  # Auto-downloads if not found
 
 training:
   batch_size: 4
@@ -63,19 +67,17 @@ training:
   save_period: 50  # Save checkpoint every N epochs
   learning_rate: 0.00005
   input_shape: [175, 175, 175]  # Target image size
-  weights_path: "unigradicon"  # Auto-downloads if not found
-  output_folder: "results"
   
   # Loss configuration
-  lmbda: 1.5  # Regularization weight
+  lambda: 1.5  # Regularization weight
   similarity: "lncc"  # Options: "lncc", "lncc2", "mind"
   lncc_sigma: 5  # For LNCC losses
 
 datasets:
   - name: "my_dataset"
-    weight: 1.0  # Sampling weight (must sum to 1.0 across all datasets)
+    weight: 1.0  # Relative sampling weight (any positive value)
     type: "unpaired"  # See Dataset Types below
-    json_file: "configs/my_dataset.json"
+    json_file: "my_dataset.json"
     maximum_images: null  # Optional: limit number of images
     shuffle: true
     is_ct: false  # Set to true for CT images
@@ -85,7 +87,7 @@ datasets:
 ### Step 3: Start Training
 
 ```bash
-python finetune.py --config configs/my_config.yaml
+unigradicon-finetune --config configs/my_config.yaml
 ```
 
 ### Step 4: Monitor Training
@@ -93,7 +95,9 @@ python finetune.py --config configs/my_config.yaml
 Training progress is logged to TensorBoard:
 
 ```bash
-tensorboard --logdir=results/my_finetuning_experiment
+# Footsteps stores runs in results/<experiment.name>/logs/<timestamp>
+tensorboard --logdir="results/my_finetuning_experiment/logs"
+# If you rerun with the same name, use the suffixed folder (e.g., results/my_finetuning_experiment-1/logs)
 ```
 
 ### Step 5: Use Your Finetuned Model
@@ -101,7 +105,7 @@ tensorboard --logdir=results/my_finetuning_experiment
 After training, use your model weights for inference:
 
 ```bash
-# Your weights are saved in results/[experiment_name]/checkpoints/
+# Your weights are saved in results/<experiment.name>/checkpoints/
 ls results/my_finetuning_experiment/checkpoints/
 
 # Use with uniGradICON CLI
@@ -126,7 +130,7 @@ unigradicon-register \
 | `input_shape` | list | Target image dimensions [D,H,W] | [175,175,175] |
 | `eval_period` | int | Validate every N epochs | 15 |
 | `save_period` | int | Save checkpoint every N epochs | 50 |
-| `lmbda` | float | Regularization weight | 1.5 |
+| `lambda` | float | Regularization weight | 1.5 |
 | `similarity` | str | Loss function: "lncc", "lncc2", "mind" | "lncc" |
 | `samples_per_epoch` | int | Samples per epoch (optional) | null |
 
@@ -142,6 +146,8 @@ unigradicon-register \
 | `use_cache` | bool | Enable/disable caching | true |
 | `is_ct` | bool | CT vs MRI preprocessing | false |
 
+`json_file` paths are resolved relative to the YAML config file's directory, so you can usually reference just the filename.
+
 ## Dataset Types
 
 ### 1. Unpaired Dataset (`unpaired`)
@@ -151,7 +157,7 @@ Random pairs of images from different subjects.
 datasets:
   - name: "brain_mri"
     type: "unpaired"
-    json_file: "configs/brain_mri.json"
+    json_file: "brain_mri.json"
     weight: 1.0
 ```
 
@@ -172,7 +178,7 @@ Matched pairs of images from the same subject.
 datasets:
   - name: "lung_followup"
     type: "paired"
-    json_file: "configs/lung_pairs.json"
+    json_file: "lung_pairs.json"
     weight: 1.0
 ```
 
@@ -193,7 +199,7 @@ Random pairs with segmentation guidance using Dice loss.
 datasets:
   - name: "brain_structures"
     type: "unpaired_with_seg"
-    json_file: "configs/brain_seg.json"
+    json_file: "brain_seg.json"
     weight: 1.0
 ```
 
@@ -213,7 +219,7 @@ Paired images with segmentation guidance.
 datasets:
   - name: "cardiac_phases"
     type: "paired_with_seg"
-    json_file: "configs/cardiac.json"
+    json_file: "cardiac.json"
     weight: 1.0
 ```
 
@@ -238,32 +244,32 @@ datasets:
   - name: "brain_t1"
     weight: 0.4
     type: "unpaired"
-    json_file: "configs/brain_t1.json"
+    json_file: "brain_t1.json"
   
   - name: "brain_t2"
     weight: 0.3
     type: "unpaired"
-    json_file: "configs/brain_t2.json"
+    json_file: "brain_t2.json"
   
   - name: "lung_ct"
     weight: 0.3
     type: "unpaired"
-    json_file: "configs/lung_ct.json"
+    json_file: "lung_ct.json"
     is_ct: true
     ct_window: [-1000, 1000]
 ```
 
-**Note:** Weights must sum to 1.0.
+**Note:** Weights are relative; they do not need to sum to 1.0.
 
 ### Auto-Download Pretrained Weights
 
 Specify model name instead of path to auto-download:
 
 ```yaml
-training:
-  weights_path: "unigradicon"  # Auto-downloads uniGradICON weights
+experiment:
+  weights_path: "unigradicon"      # Auto-downloads uniGradICON weights
   # OR
-  weights_path: "multigradicon"  # Auto-downloads multiGradICON weights
+  weights_path: "multigradicon"    # Auto-downloads multiGradICON weights
   # OR
   weights_path: "/path/to/my/weights.trch"  # Use custom weights
 ```
@@ -273,7 +279,7 @@ training:
 The system automatically detects if you're resuming from a checkpoint:
 
 ```yaml
-training:
+experiment:
   weights_path: "results/my_experiment/checkpoints/network_weights_50"
 ```
 
@@ -298,7 +304,7 @@ For debugging or frequently changing data:
 datasets:
   - name: "test_dataset"
     type: "unpaired"
-    json_file: "configs/test.json"
+    json_file: "test.json"
     use_cache: false  # Reload images every time
 ```
 
@@ -331,9 +337,9 @@ datasets:
 ### "Data must be provided"
 - Ensure your JSON file contains the top-level `data` key.
 
-### "Weights must sum to 1.0"
-- Check all dataset `weight` values sum to 1.0
-- Example: [0.5, 0.3, 0.2] ✓  |  [0.5, 0.4, 0.3] ✗
+### Weights are relative
+- Sampler treats weights as relative multipliers; they do not need to sum to 1.0.
+- Keep weights positive to avoid invalid sampler behavior.
 
 ### Cache takes too much disk space
 - Set `use_cache: false`

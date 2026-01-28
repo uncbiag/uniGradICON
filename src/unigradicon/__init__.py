@@ -1,4 +1,5 @@
 import itk
+import os
 
 import footsteps
 import numpy as np
@@ -342,11 +343,23 @@ def get_unigradicon(loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_los
     net.eval()
     return net
 
-def get_model_from_model_zoo(model_name="unigradicon", loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False, dice_loss_weight=0.0, loss_function_masking=False):
+def get_model_from_model_zoo(model_name="unigradicon", loss_fn=icon.LNCC(sigma=5), apply_intensity_conservation_loss=False, dice_loss_weight=0.0, loss_function_masking=False, weights_location=None):
     if model_name == "unigradicon":
-        return get_unigradicon(loss_fn, apply_intensity_conservation_loss, dice_loss_weight=dice_loss_weight, loss_function_masking=loss_function_masking)
+        return get_unigradicon(
+            loss_fn,
+            apply_intensity_conservation_loss,
+            weights_location=weights_location,
+            dice_loss_weight=dice_loss_weight,
+            loss_function_masking=loss_function_masking,
+        )
     elif model_name == "multigradicon":
-        return get_multigradicon(loss_fn, apply_intensity_conservation_loss, dice_loss_weight=dice_loss_weight, loss_function_masking=loss_function_masking)
+        return get_multigradicon(
+            loss_fn,
+            apply_intensity_conservation_loss,
+            weights_location=weights_location,
+            dice_loss_weight=dice_loss_weight,
+            loss_function_masking=loss_function_masking,
+        )
     else:
         raise ValueError(f"Model {model_name} not recognized. Choose from [unigradicon, multigradicon].")
 
@@ -406,6 +419,13 @@ def main():
                          type=str, help="The path of the segmentation map of the fixed image.")
     parser.add_argument("--moving_segmentation", required=False,
                          type=str, help="The path of the segmentation map of the moving image.")
+    parser.add_argument(
+        "--masking_mode",
+        choices=["roi", "loss", "none"],
+        default="roi",
+        help="How to use provided segmentations: 'roi' masks the input images (default), "
+             "'loss' uses masks only for loss/Dice, 'none' ignores masks for both."
+    )
     parser.add_argument("--transform_out", required=True,
                          type=str, help="The path to save the transform.")
     parser.add_argument("--warped_moving_out", required=False,
@@ -417,13 +437,16 @@ def main():
     parser.add_argument("--model", required=False,
                          default="unigradicon", help="The model to load. Default is unigradicon. Choose from [unigradicon, multigradicon].")
     parser.add_argument("--loss_function_masking", required=False,
-                         action="store_true", help="Apply loss function masking using the provided segmentations. \
-                             If not set, segmentations will instead be used to mask out the images before registration.")
+                         action="store_true", help="Apply loss/similarity masking using the provided segmentations "
+                                                    "(can be combined with masking_mode).")
     parser.add_argument("--intensity_conservation_loss", required=False,
                             action="store_true", help="Enable determinant-based intensity correction in the loss \
                             function for mass-conserving registration. Applicable only for CT modality where -1000 HU represents air.")
     parser.add_argument("--dice_loss_weight", required=False, type=float, default=0.0,
                             help="The weight of the Dice loss if segmentations are provided. Default is 0.0 (no Dice loss).")
+    parser.add_argument("--network_weights", required=False, type=str, default=None,
+                            help="Path to a custom network weights checkpoint (e.g., results/.../network_weights_100). "
+                                 "If omitted, packaged weights are downloaded/used.")
 
     args = parser.parse_args()
     
@@ -431,7 +454,17 @@ def main():
         if args.fixed_modality != "ct" or args.moving_modality != "ct":
             raise ValueError("Intensity conservation loss is only supported for CT images.")
 
-    net = get_model_from_model_zoo(args.model, make_sim(args.io_sim), args.intensity_conservation_loss, args.dice_loss_weight, args.loss_function_masking)
+    if args.network_weights is not None and not os.path.exists(args.network_weights):
+        raise FileNotFoundError(f"Network weights file not found: {args.network_weights}")
+
+    net = get_model_from_model_zoo(
+        args.model,
+        make_sim(args.io_sim),
+        args.intensity_conservation_loss,
+        args.dice_loss_weight,
+        args.loss_function_masking,
+        weights_location=args.network_weights,
+    )
 
     fixed = itk.imread(args.fixed)
     moving = itk.imread(args.moving)
@@ -448,20 +481,37 @@ def main():
     else:
         moving_segmentation = None
         
-    if args.loss_function_masking or args.dice_loss_weight > 0.0:
-        if fixed_segmentation is None or moving_segmentation is None:
-            raise ValueError("If loss function masking is enabled, both fixed and moving segmentations must be provided.")
+    use_loss_masks = args.loss_function_masking or args.dice_loss_weight > 0.0
+    if use_loss_masks and (fixed_segmentation is None or moving_segmentation is None):
+        raise ValueError("Loss masking/Dice requires both fixed and moving segmentations.")
 
     if args.io_iterations == "None":
         io_iterations = None
     else:
         io_iterations = int(args.io_iterations)
 
-    if args.loss_function_masking or args.dice_loss_weight > 0.0:
+    # Apply ROI masking to inputs if requested
+    masked_moving = preprocess(
+        moving,
+        args.moving_modality,
+        moving_segmentation if args.masking_mode == "roi" else None,
+    )
+    masked_fixed = preprocess(
+        fixed,
+        args.fixed_modality,
+        fixed_segmentation if args.masking_mode == "roi" else None,
+    )
+
+    if use_loss_masks and args.masking_mode == "none":
+        # Ensure loss masks exist even if not used for ROI masking
+        masked_moving = preprocess(moving, args.moving_modality, None)
+        masked_fixed = preprocess(fixed, args.fixed_modality, None)
+
+    if use_loss_masks:
         phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(
             net,
-            preprocess(moving, args.moving_modality), 
-            preprocess(fixed, args.fixed_modality),
+            masked_moving,
+            masked_fixed,
             moving_segmentation,
             fixed_segmentation,
             finetune_steps=io_iterations)
@@ -469,8 +519,8 @@ def main():
     else:
         phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(
             net,
-            preprocess(moving, args.moving_modality, moving_segmentation), 
-            preprocess(fixed, args.fixed_modality, fixed_segmentation), 
+            masked_moving, 
+            masked_fixed, 
             finetune_steps=io_iterations)
 
     itk.transformwrite([phi_AB], args.transform_out)

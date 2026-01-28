@@ -9,6 +9,7 @@ import footsteps
 import itk
 import SimpleITK
 from typing import List, Tuple, Optional, Union, Dict, Any
+from torch.utils.data import Dataset as TorchDataset
 
 
 def reorient(moving):
@@ -22,7 +23,7 @@ def reorient(moving):
         desired_coordinate_orientation=desired_coordinate_orientation,
         use_image_direction=True)
 
-class Dataset:
+class Dataset(TorchDataset):
     def __init__(self, 
                  input_shape: Tuple[int, ...],
                  name: str,

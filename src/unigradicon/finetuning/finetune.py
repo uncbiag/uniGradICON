@@ -397,15 +397,14 @@ def finetune_multi_segmentation(input_shape, data_loader, val_data_loaders_dict,
     print("\nTraining completed!")
     writer.close()
 
-if __name__ == "__main__":
+def main(argv=None):
     import argparse
+    from . import multi_dataset_loader
 
     parser = argparse.ArgumentParser(description="Finetuning for uniGradICON")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
     
-    args = parser.parse_args()
-    
-    import multi_dataset_loader
+    args = parser.parse_args(argv)
     
     train_loader, val_loaders, config, mode = multi_dataset_loader.create_multi_dataset_loaders(args.config)
     
@@ -497,3 +496,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("FINETUNING COMPLETED")
     print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()

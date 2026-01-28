@@ -1,7 +1,7 @@
-import torch
+import os
 from torch.utils.data import ConcatDataset, WeightedRandomSampler, DataLoader
 from typing import Dict, List, Tuple, Any
-import config_loader
+from . import config_loader
 
 
 def create_multi_dataset_loaders(config_path: str) -> Tuple[DataLoader, Dict[str, DataLoader], Dict[str, Any], str]:
@@ -15,13 +15,27 @@ def create_multi_dataset_loaders(config_path: str) -> Tuple[DataLoader, Dict[str
         mode: 'standard' or 'segmentation' indicating dataset type
     """
     config = config_loader.load_config(config_path)
+    config_dir = os.path.dirname(os.path.abspath(config_path))
+    
+    # Apply training defaults so README defaults actually work
+    training_defaults = {
+        'batch_size': 4,
+        'gpus': [0],
+        'epochs': 500,
+        'eval_period': 15,
+        'save_period': 50,
+        'input_shape': [175, 175, 175],
+    }
+    training_cfg = config.setdefault('training', {})
+    for k, v in training_defaults.items():
+        training_cfg.setdefault(k, v)
     
     mode = config_loader.validate_dataset_consistency(config['datasets'])
     print(f"Dataset mode: {mode}")
     
-    input_shape = config['training']['input_shape']
-    batch_size = config['training']['batch_size']
-    gpus = config['training']['gpus']
+    input_shape = training_cfg['input_shape']
+    batch_size = training_cfg['batch_size']
+    gpus = training_cfg['gpus']
     num_gpus = len(gpus)
     
     datasets = []
@@ -34,7 +48,7 @@ def create_multi_dataset_loaders(config_path: str) -> Tuple[DataLoader, Dict[str
         print(f"  Type: {ds_config['type']}")
         print(f"  Weight: {ds_config.get('weight', 1.0)}")
         
-        ds = config_loader.create_dataset_from_config(ds_config, input_shape)
+        ds = config_loader.create_dataset_from_config(ds_config, input_shape, config_dir=config_dir)
         datasets.append(ds)
         
         # Get dataset length - handle both __len__ and keys attribute
@@ -45,11 +59,15 @@ def create_multi_dataset_loaders(config_path: str) -> Tuple[DataLoader, Dict[str
             ds_length = len(ds.keys) if ds.keys else 0
         else:
             raise ValueError(f"Dataset {ds_config['name']} has no way to determine length (no __len__ or keys attribute)")
+
+        if ds_length == 0:
+            raise ValueError(f"Dataset {ds_config['name']} is empty; cannot build sampler.")
         
         ds_weight = ds_config.get('weight', 1.0)
-        weights.extend([ds_weight] * ds_length)
+        per_sample_weight = ds_weight / ds_length
+        weights.extend([per_sample_weight] * ds_length)
         
-        print(f"  Loaded {ds_length} samples")
+        print(f"Loaded {ds_length} samples")
         
         val_loaders[ds_config['name']] = DataLoader(
             ds,
@@ -115,4 +133,3 @@ def get_dataset_info(config_path: str) -> Dict[str, Any]:
         })
     
     return info
-

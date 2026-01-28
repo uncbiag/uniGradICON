@@ -67,14 +67,19 @@ To load specific model weight in the inference. We currently support uniGradICON
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --model multigradicon
 ```
 
-To mask out the background using the provided segmentation before registration (segmentations for both moving and fixed images are necessary for accurate registration):
+To mask out the background using the provided segmentation before registration (segmentations for both moving and fixed images are necessary for accurate registration). This is the **default** behavior (`--masking_mode roi`):
 ```
-unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations None
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations None --masking_mode roi
 ```
 
-To apply loss function masking using the provided segmentations in the IO:
+To apply loss function masking using the provided segmentations in the IO (inputs still ROI-masked by default):
 ```
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --loss_function_masking
+```
+
+If you want masks used only for loss (do **not** mask the input intensities), set `--masking_mode loss`:
+```
+unigradicon-register ... --masking_mode loss --loss_function_masking
 ```
 
 This loss function ensures proper intensity adjustments for registration tasks requiring mass conservation, utilizing the change of variables rule from integration. To be effective, images must be in an intensity space where conservation holds. This loss function is specifically valid for CT modality, where -1000 HU represents air. To apply determinant-based intensity correction during registration in the IO:
@@ -275,7 +280,7 @@ A Slicer extensions is available [here](https://github.com/uncbiag/SlicerUniGrad
 
 ## Finetuning
 
-You can finetune the `uniGradICON` model on your own data using the `finetuning/README.md` guide.
+You can finetune the `uniGradICON` model on your own data using the [finetuning guide](src/unigradicon/finetuning/README.md).
 
 ## Get involved
 
@@ -312,4 +317,3 @@ If you find this repository useful, please consider citing:
   organization={Springer}
 }
 ```
-

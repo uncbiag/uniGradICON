@@ -18,15 +18,15 @@ training:
 datasets:
   - name: "example_dataset"
     type: "unpaired"
-    json_file: "configs/example_unpaired.json"
-    weight: 1.0 # Weights must sum to 1.0
+    json_file: "example_unpaired.json"
+    weight: 1.0 # Relative sampling weight
     is_ct: false
     quantile_range: [0.01, 0.99]
 
-  # Example of adding a second dataset (ensure weights sum to 1.0):
+  # Example of adding a second dataset (weights are relative):
   # - name: "second_dataset"
   #   type: "unpaired"
-  #   json_file: "configs/another_dataset.json"
+  #   json_file: "another_dataset.json"
   #   weight: 0.3
   #   is_ct: true
   #   ct_window: [-1000, 1000]

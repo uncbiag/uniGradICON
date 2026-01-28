@@ -2,7 +2,7 @@ import yaml
 import json
 import os
 from typing import Dict, List, Tuple, Any
-import dataset
+from . import dataset
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -21,8 +21,34 @@ def load_json_dataset_file(json_path: str) -> List[Dict[str, str]]:
     
     if "data" not in content:
         raise ValueError(f"JSON dataset file {json_path} must contain top-level 'data' key.")
+    
+    data = content["data"]
+    base_dir = os.path.dirname(os.path.abspath(json_path))
+
+    for idx, item in enumerate(data):
+        if "image" not in item:
+            raise ValueError(f"Missing 'image' field in entry {idx} of {json_path}")
+
+        image_path = item["image"]
+        resolved_image = image_path if os.path.isabs(image_path) else os.path.join(base_dir, image_path)
+        if not os.path.exists(resolved_image):
+            raise FileNotFoundError(
+                f"Image file not found for entry {idx} in {json_path}: "
+                f"{image_path} (resolved to {resolved_image})"
+            )
+        item["image"] = resolved_image
+
+        if "segmentation" in item:
+            seg_path = item["segmentation"]
+            resolved_seg = seg_path if os.path.isabs(seg_path) else os.path.join(base_dir, seg_path)
+            if not os.path.exists(resolved_seg):
+                raise FileNotFoundError(
+                    f"Segmentation file not found for entry {idx} in {json_path}: "
+                    f"{seg_path} (resolved to {resolved_seg})"
+                )
+            item["segmentation"] = resolved_seg
         
-    return content["data"]
+    return data
 
 
 def validate_dataset_consistency(configs: List[Dict[str, Any]]) -> str:
@@ -53,7 +79,7 @@ def validate_dataset_consistency(configs: List[Dict[str, Any]]) -> str:
         return 'standard'
 
 
-def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tuple[int, ...]) -> dataset.Dataset:
+def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tuple[int, ...], config_dir: str = "") -> dataset.Dataset:
     """
     Instantiate a dataset based on config using existing classes:
     - Dataset (unpaired)
@@ -82,8 +108,11 @@ def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tupl
     # Load JSON data
     if 'json_file' not in dataset_config:
         raise ValueError(f"Dataset '{dataset_config['name']}' must specify 'json_file'")
-        
-    common_params['data'] = load_json_dataset_file(dataset_config['json_file'])
+    
+    json_file = dataset_config['json_file']
+    if config_dir and not os.path.isabs(json_file):
+        json_file = os.path.join(config_dir, json_file)
+    common_params['data'] = load_json_dataset_file(json_file)
     
     if dataset_type == 'unpaired':
         return dataset.Dataset(**common_params)
