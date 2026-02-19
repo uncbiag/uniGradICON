@@ -46,6 +46,8 @@ def main():
                          help="The path of the fixed image.")
     parser.add_argument("--moving", required=True, type=str,
                          help="The path of the fixed image.")
+    parser.add_argument("--affine", type=bool,
+                         help="return only the affine component of the transform")
     parser.add_argument("--transform_out", required=True,
                          type=str, help="The path to save the transform.")
     parser.add_argument("--warped_moving_out", required=False,
@@ -72,6 +74,9 @@ def main():
         register.preprocess(fixed),
         finetune_steps=io_iterations)
     phi_AB = affine_decomposition.decompose_icon_itk_transform(phi_AB)
+
+    if args.affine:
+        phi_AB = extract_affine_icon_itk_transform(phi_AB)
 
     itk.transformwrite([phi_AB], args.transform_out)
 
