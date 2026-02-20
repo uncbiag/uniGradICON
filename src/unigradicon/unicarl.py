@@ -46,7 +46,7 @@ def main():
                          help="The path of the fixed image.")
     parser.add_argument("--moving", required=True, type=str,
                          help="The path of the fixed image.")
-    parser.add_argument("--affine", type=bool,
+    parser.add_argument("--affine", action="store_true",
                          help="return only the affine component of the transform")
     parser.add_argument("--transform_out", required=True,
                          type=str, help="The path to save the transform.")
