@@ -33,52 +33,242 @@ def loss_to_dict(loss_object):
         return to_floats(loss_object)._asdict()
 
 
-def augment(image_A, image_B):
-    """Apply random affine augmentation to image pairs."""
-    device = image_A.device
+def _random_affine_params(batch_size, device):
+    """Create random near-identity affine parameters."""
     identity_list = []
-    for i in range(image_A.shape[0]):
+    for _ in range(batch_size):
         identity = torch.tensor([[[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]], device=device)
         idxs = set((0, 1, 2))
         for j in range(3):
             k = random.choice(list(idxs))
             idxs.remove(k)
-            identity[0, j, k] = 1 
-        identity = identity * (torch.randint_like(identity, 0, 2, device=device) * 2  - 1)
+            identity[0, j, k] = 1
+        identity = identity * (torch.randint_like(identity, 0, 2, device=device) * 2 - 1)
         identity_list.append(identity)
 
     identity = torch.cat(identity_list)
-    
-    noise = torch.randn((image_A.shape[0], 3, 4), device=device)
+    noise = torch.randn((batch_size, 3, 4), device=device)
+    return identity + 0.05 * noise
 
-    forward = identity + .05 * noise  
 
-    grid_shape = list(image_A.shape)
+def _affine_warp(image, forward, mode='bilinear'):
+    grid_shape = list(image.shape)
     grid_shape[1] = 3
     forward_grid = F.affine_grid(forward, grid_shape, align_corners=True)
-   
+    return F.grid_sample(
+        image,
+        forward_grid,
+        mode=mode,
+        padding_mode='border',
+        align_corners=True,
+    )
+
+
+def augment(image_A, image_B):
+    """Apply random affine augmentation to image pairs."""
+    device = image_A.device
+    forward = _random_affine_params(image_A.shape[0], device)
     if image_A.shape[1] > 1:
-        warped_A = F.grid_sample(image_A[:, :1], forward_grid, padding_mode='border', align_corners=True)
-        warped_A_seg = F.grid_sample(image_A[:, 1:], forward_grid, mode='nearest', padding_mode='border', align_corners=True)
+        warped_A = _affine_warp(image_A[:, :1], forward)
+        warped_A_seg = _affine_warp(image_A[:, 1:], forward, mode='nearest')
         warped_A = torch.cat([warped_A, warped_A_seg], axis=1)
     else:
-        warped_A = F.grid_sample(image_A, forward_grid, padding_mode='border', align_corners=True)
+        warped_A = _affine_warp(image_A, forward)
 
-    noise = torch.randn((image_A.shape[0], 3, 4), device=device)
-    forward = identity + .05 * noise  
-
-    grid_shape = list(image_A.shape)
-    grid_shape[1] = 3
-    forward_grid = F.affine_grid(forward, grid_shape, align_corners=True)
+    forward = _random_affine_params(image_B.shape[0], device)
 
     if image_B.shape[1] > 1:
-        warped_B = F.grid_sample(image_B[:, :1], forward_grid, padding_mode='border', align_corners=True)
-        warped_B_seg = F.grid_sample(image_B[:, 1:], forward_grid, mode='nearest', padding_mode='border', align_corners=True)
+        warped_B = _affine_warp(image_B[:, :1], forward)
+        warped_B_seg = _affine_warp(image_B[:, 1:], forward, mode='nearest')
         warped_B = torch.cat([warped_B, warped_B_seg], axis=1)
     else:
-        warped_B = F.grid_sample(image_B, forward_grid, padding_mode='border', align_corners=True)
+        warped_B = _affine_warp(image_B, forward)
 
     return warped_A, warped_B
+
+
+def augment_with_segmentations(image_A, image_B, seg_A, seg_B):
+    """Apply random affine augmentation to image/segmentation pairs."""
+    forward_A = _random_affine_params(image_A.shape[0], image_A.device)
+    warped_A = _affine_warp(image_A, forward_A)
+    warped_seg_A = _affine_warp(seg_A, forward_A, mode='nearest')
+
+    forward_B = _random_affine_params(image_B.shape[0], image_B.device)
+    warped_B = _affine_warp(image_B, forward_B)
+    warped_seg_B = _affine_warp(seg_B, forward_B, mode='nearest')
+    return warped_A, warped_B, warped_seg_A, warped_seg_B
+
+
+def render_for_tensorboard(im):
+    if len(im.shape) == 5:
+        im = im[:, :, :, im.shape[3] // 2]
+    if torch.min(im) < 0:
+        im = im - torch.min(im)
+    if torch.max(im) > 1:
+        im = im / torch.max(im)
+    return im[:4, [0, 0, 0]].detach().cpu()
+
+
+def segmentation_labels_for_tensorboard(im):
+    if len(im.shape) == 5:
+        im = im[:, :, :, im.shape[3] // 2]
+    if im.shape[1] == 1:
+        return torch.round(im[:4, 0]).long()
+    return torch.argmax(im[:4], dim=1).long()
+
+
+def _hsv_to_rgb(h, s, v):
+    i = torch.floor(h * 6.0).long()
+    f = h * 6.0 - i.float()
+    p = v * (1.0 - s)
+    q = v * (1.0 - f * s)
+    t = v * (1.0 - (1.0 - f) * s)
+    i = i % 6
+
+    r = torch.zeros_like(h)
+    g = torch.zeros_like(h)
+    b = torch.zeros_like(h)
+
+    mask = i == 0
+    r[mask], g[mask], b[mask] = v[mask], t[mask], p[mask]
+    mask = i == 1
+    r[mask], g[mask], b[mask] = q[mask], v[mask], p[mask]
+    mask = i == 2
+    r[mask], g[mask], b[mask] = p[mask], v[mask], t[mask]
+    mask = i == 3
+    r[mask], g[mask], b[mask] = p[mask], q[mask], v[mask]
+    mask = i == 4
+    r[mask], g[mask], b[mask] = t[mask], p[mask], v[mask]
+    mask = i == 5
+    r[mask], g[mask], b[mask] = v[mask], p[mask], q[mask]
+
+    return torch.stack([r, g, b], dim=1)
+
+
+def _segmentation_palette(num_colors, device):
+    palette = torch.zeros((max(num_colors, 1), 3), dtype=torch.float32, device=device)
+    if num_colors <= 1:
+        return palette
+
+    class_ids = torch.arange(1, num_colors, dtype=torch.float32, device=device)
+    hues = torch.remainder(class_ids * 0.61803398875, 1.0)
+    saturation = torch.full_like(hues, 0.75)
+    value = torch.full_like(hues, 0.95)
+    palette[1:] = _hsv_to_rgb(hues, saturation, value)
+    return palette
+
+
+def labels_to_color_image(labels):
+    num_colors = int(labels.max().item()) + 1 if labels.numel() > 0 else 1
+    palette = _segmentation_palette(num_colors, labels.device)
+    color_idx = torch.remainder(labels, palette.shape[0])
+    rgb = palette[color_idx]
+    return rgb.permute(0, 3, 1, 2)
+
+
+def render_segmentation_for_tensorboard(im):
+    labels = segmentation_labels_for_tensorboard(im)
+    return labels_to_color_image(labels).detach().cpu()
+
+
+def render_segmentation_overlay_for_tensorboard(image, segmentation, alpha=0.55):
+    image_rgb = render_for_tensorboard(image).to(segmentation.device)
+    labels = segmentation_labels_for_tensorboard(segmentation)
+    seg_rgb = labels_to_color_image(labels)
+    seg_mask = (labels > 0).unsqueeze(1)
+    overlay = torch.where(
+        seg_mask,
+        (1.0 - alpha) * image_rgb + alpha * seg_rgb,
+        image_rgb,
+    )
+    return overlay.detach().cpu()
+
+
+def render_warped_segmentation_overlay_for_tensorboard(image, warped_segmentation, alpha=0.55):
+    image_rgb = render_for_tensorboard(image).to(warped_segmentation.device)
+    labels = segmentation_labels_for_tensorboard(warped_segmentation)
+    seg_rgb = labels_to_color_image(labels)
+    seg_mask = (labels > 0).unsqueeze(1)
+    overlay = torch.where(
+        seg_mask,
+        (1.0 - alpha) * image_rgb + alpha * seg_rgb,
+        image_rgb,
+    )
+    return overlay.detach().cpu()
+
+
+def add_eval_image_panels(writer, prefix, epoch, moving, fixed, warped):
+    writer.add_images(
+        f"{prefix}/moving_image", render_for_tensorboard(moving[:4]), epoch, dataformats="NCHW"
+    )
+    writer.add_images(
+        f"{prefix}/fixed_image", render_for_tensorboard(fixed[:4]), epoch, dataformats="NCHW"
+    )
+    writer.add_images(
+        f"{prefix}/warped_moving_image",
+        render_for_tensorboard(warped),
+        epoch,
+        dataformats="NCHW",
+    )
+    writer.add_images(
+        f"{prefix}/difference",
+        render_for_tensorboard(torch.clip((warped[:4, :1] - fixed[:4, :1]) + 0.5, 0, 1)),
+        epoch,
+        dataformats="NCHW",
+    )
+
+
+def add_eval_segmentation_panels(
+    writer,
+    prefix,
+    epoch,
+    moving_seg,
+    fixed_seg,
+    warped_seg=None,
+    moving_image=None,
+    fixed_image=None,
+    warped_image=None,
+):
+    writer.add_images(
+        f"{prefix}/moving_segmentation",
+        render_segmentation_for_tensorboard(moving_seg),
+        epoch,
+        dataformats="NCHW",
+    )
+    writer.add_images(
+        f"{prefix}/fixed_segmentation",
+        render_segmentation_for_tensorboard(fixed_seg),
+        epoch,
+        dataformats="NCHW",
+    )
+    if moving_image is not None:
+        writer.add_images(
+            f"{prefix}/moving_overlay",
+            render_segmentation_overlay_for_tensorboard(moving_image, moving_seg),
+            epoch,
+            dataformats="NCHW",
+        )
+    if fixed_image is not None:
+        writer.add_images(
+            f"{prefix}/fixed_overlay",
+            render_segmentation_overlay_for_tensorboard(fixed_image, fixed_seg),
+            epoch,
+            dataformats="NCHW",
+        )
+    if warped_seg is not None:
+        writer.add_images(
+            f"{prefix}/warped_moving_segmentation",
+            render_segmentation_for_tensorboard(warped_seg),
+            epoch,
+            dataformats="NCHW",
+        )
+    if warped_seg is not None and warped_image is not None:
+        writer.add_images(
+            f"{prefix}/warped_moving_overlay",
+            render_warped_segmentation_overlay_for_tensorboard(warped_image, warped_seg),
+            epoch,
+            dataformats="NCHW",
+        )
 
 
 def get_loss_function(similarity_type, sigma=5, mind_radius=2, mind_dilation=2):
@@ -221,16 +411,26 @@ def finetune_multi_standard(input_shape, data_loader, val_data_loaders_dict, GPU
         
         if epoch % eval_period == 0:
             net_par.eval()
+            net.eval()
             with torch.no_grad():
                 for dataset_name, val_loader in val_data_loaders_dict.items():
                     try:
                         val_moving, val_fixed = next(iter(val_loader))
                         val_moving, val_fixed = val_moving.cuda(), val_fixed.cuda()
                         
-                        val_loss = net_par(val_moving, val_fixed)
+                        val_loss = net(val_moving, val_fixed)
                         
                         for k, v in loss_to_dict(val_loss).items():
                             writer.add_scalar(f"{dataset_name}/val_{k}", v, epoch)
+                        add_eval_image_panels(
+                            writer,
+                            dataset_name,
+                            epoch,
+                            val_moving,
+                            val_fixed,
+                            net.warped_image_A,
+                        )
+                        net.clean()
                     except Exception as e:
                         print(f"Warning: Validation failed for {dataset_name}: {e}")
             
@@ -246,7 +446,8 @@ def finetune_multi_standard(input_shape, data_loader, val_data_loaders_dict, GPU
 
 def finetune_multi_segmentation(input_shape, data_loader, val_data_loaders_dict, GPUS, device_ids,
                                 epochs, eval_period, save_period, learning_rate, weights_path,
-                                lmbda=1.5, loss_fn=None, dice_loss_weight=0.0):
+                                lmbda=1.5, loss_fn=None, dice_loss_weight=0.0,
+                                loss_function_masking=False):
     """
     Finetuning with multiple datasets (segmentation mode).
     Handles datasets that return 4 outputs: (moving_image, fixed_image, moving_seg, fixed_seg).
@@ -265,6 +466,7 @@ def finetune_multi_segmentation(input_shape, data_loader, val_data_loaders_dict,
         lmbda: Regularization weight for deformation smoothness
         loss_fn: Loss function object (e.g., icon.LNCC(sigma=5))
         dice_loss_weight: Weight for dice loss (recommended: 0.3-0.5 for segmentation mode)
+        loss_function_masking: Apply segmentation masking to similarity loss.
     """
     if loss_fn is None:
         loss_fn = icon.LNCC(sigma=5)
@@ -276,7 +478,8 @@ def finetune_multi_segmentation(input_shape, data_loader, val_data_loaders_dict,
         lmbda=lmbda,
         loss_fn=loss_fn,
         use_label=True,
-        dice_loss_weight=dice_loss_weight
+        dice_loss_weight=dice_loss_weight,
+        loss_function_masking=loss_function_masking,
     )
     torch.cuda.set_device(device_ids[0])
     torch.backends.cudnn.enabled = True
@@ -337,6 +540,14 @@ def finetune_multi_segmentation(input_shape, data_loader, val_data_loaders_dict,
             fixed_image = fixed_image.cuda()
             moving_seg = moving_seg.cuda()
             fixed_seg = fixed_seg.cuda()
+
+            with torch.no_grad():
+                moving_image, fixed_image, moving_seg, fixed_seg = augment_with_segmentations(
+                    moving_image,
+                    fixed_image,
+                    moving_seg,
+                    fixed_seg,
+                )
             
             optimizer.zero_grad()
             loss_object = net_par(moving_image, fixed_image, mask_A=moving_seg, mask_B=fixed_seg)
@@ -368,6 +579,7 @@ def finetune_multi_segmentation(input_shape, data_loader, val_data_loaders_dict,
         
         if epoch % eval_period == 0:
             net_par.eval()
+            net.eval()
             with torch.no_grad():
                 for dataset_name, val_loader in val_data_loaders_dict.items():
                     try:
@@ -377,19 +589,43 @@ def finetune_multi_segmentation(input_shape, data_loader, val_data_loaders_dict,
                         val_moving_seg = val_moving_seg.cuda()
                         val_fixed_seg = val_fixed_seg.cuda()
                         
-                        val_loss = net_par(val_moving, val_fixed, mask_A=val_moving_seg, mask_B=val_fixed_seg)
+                        val_loss = net(
+                            val_moving,
+                            val_fixed,
+                            mask_A=val_moving_seg,
+                            mask_B=val_fixed_seg,
+                        )
                         
                         for k, v in loss_to_dict(val_loss).items():
                             writer.add_scalar(f"{dataset_name}/val_{k}", v, epoch)
+                        add_eval_image_panels(
+                            writer,
+                            dataset_name,
+                            epoch,
+                            val_moving,
+                            val_fixed,
+                            net.warped_image_A,
+                        )
+                        warped_seg_for_viz = None
+                        if dice_loss_weight > 0.0 and hasattr(net, "warped_seg_A"):
+                            warped_seg_for_viz = net.warped_seg_A
+                        add_eval_segmentation_panels(
+                            writer,
+                            dataset_name,
+                            epoch,
+                            val_moving_seg,
+                            val_fixed_seg,
+                            warped_seg_for_viz,
+                            moving_image=val_moving,
+                            fixed_image=val_fixed,
+                            warped_image=net.warped_image_A,
+                        )
+                        net.clean()
                     except Exception as e:
                         print(f"Warning: Validation failed for {dataset_name}: {e}")
             
             net_par.train()
     
-    torch.save(
-        net.regis_net.state_dict(),
-        footsteps.output_dir + "checkpoints/Finetune_multi_final.trch",
-    )
     torch.save(
         net.regis_net.state_dict(),
         footsteps.output_dir + "checkpoints/Finetune_multi_final.trch",
@@ -432,6 +668,7 @@ def main(argv=None):
     similarity_type = train_config.get('similarity', 'lncc')
     lmbda = train_config.get('lambda', 1.5)
     dice_loss_weight = train_config.get('dice_loss_weight', 0.0)
+    loss_function_masking = train_config.get('loss_function_masking', False)
     lncc_sigma = train_config.get('lncc_sigma', 5)
     mind_radius = train_config.get('mind_radius', 2)
     mind_dilation = train_config.get('mind_dilation', 2)
@@ -450,11 +687,28 @@ def main(argv=None):
     print(f"  Similarity: {similarity_type}")
     print(f"  Lambda (regularization): {lmbda}")
     print(f"  Dice loss weight: {dice_loss_weight}")
+    print(f"  Loss function masking: {loss_function_masking}")
     if similarity_type in ['lncc', 'lncc2']:
         print(f"  LNCC sigma: {lncc_sigma}")
     elif similarity_type == 'mind':
         print(f"  MIND radius: {mind_radius}")
         print(f"  MIND dilation: {mind_dilation}")
+
+    if mode == 'standard' and loss_function_masking:
+        raise ValueError(
+            "loss_function_masking requires segmentation datasets. "
+            "Use dataset type 'unpaired_with_seg' or 'paired_with_seg'."
+        )
+    if mode == 'standard' and dice_loss_weight > 0.0:
+        raise ValueError(
+            "dice_loss_weight requires segmentation datasets. "
+            "Set dice_loss_weight to 0.0 for standard datasets."
+        )
+    if loss_function_masking and dice_loss_weight > 0.0:
+        raise ValueError(
+            "loss_function_masking and dice_loss_weight are mutually exclusive in finetuning. "
+            "Set dice_loss_weight to 0.0 when using loss_function_masking."
+        )
     
     if mode == 'standard':
         print("\nStarting standard mode training (no segmentations)...")
@@ -471,7 +725,7 @@ def main(argv=None):
             weights_path=weights_path,
             lmbda=lmbda,
             loss_fn=loss_fn,
-            dice_loss_weight=dice_loss_weight
+            dice_loss_weight=dice_loss_weight,
         )
     elif mode == 'segmentation':
         print("\nStarting segmentation mode training (with segmentations)...")
@@ -488,7 +742,8 @@ def main(argv=None):
             weights_path=weights_path,
             lmbda=lmbda,
             loss_fn=loss_fn,
-            dice_loss_weight=dice_loss_weight
+            dice_loss_weight=dice_loss_weight,
+            loss_function_masking=loss_function_masking,
         )
     else:
         raise ValueError(f"Unknown mode: {mode}")

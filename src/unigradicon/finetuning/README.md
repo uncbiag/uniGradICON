@@ -8,6 +8,7 @@ This guide shows you how to finetune uniGradICON on your own datasets using conf
 - [Configuration Guide](#-configuration-guide)
 - [Dataset Types](#-dataset-types)
 - [Advanced Features](#-advanced-features)
+- [Dice Loss and Masking](#-dice-loss-and-masking)
 
 ## 🚀 Quick Start
 
@@ -72,6 +73,8 @@ training:
   lambda: 1.5  # Regularization weight
   similarity: "lncc"  # Options: "lncc", "lncc2", "mind"
   lncc_sigma: 5  # For LNCC losses
+  dice_loss_weight: 0.0  # >0 only for segmentation datasets
+  loss_function_masking: false  # When true, Dice is disabled and must stay 0.0
 
 datasets:
   - name: "my_dataset"
@@ -92,7 +95,8 @@ unigradicon-finetune --config configs/my_config.yaml
 
 ### Step 4: Monitor Training
 
-Training progress is logged to TensorBoard:
+Training progress is logged to TensorBoard. Validation writes scalar losses plus image panels
+(moving/fixed/warped/difference), and segmentation panels when segmentation datasets are used:
 
 ```bash
 # Footsteps stores runs in results/<experiment.name>/logs/<timestamp>
@@ -127,12 +131,21 @@ unigradicon-register \
 | `gpus` | list | GPU device IDs | [0] |
 | `epochs` | int | Training epochs | 500 |
 | `learning_rate` | float | Adam learning rate | 5e-5 |
-| `input_shape` | list | Target image dimensions [D,H,W] | [175,175,175] |
+| `input_shape` | list | Target image dimensions [D,H,W] used during finetuning | [175,175,175] |
 | `eval_period` | int | Validate every N epochs | 15 |
 | `save_period` | int | Save checkpoint every N epochs | 50 |
 | `lambda` | float | Regularization weight | 1.5 |
 | `similarity` | str | Loss function: "lncc", "lncc2", "mind" | "lncc" |
+| `dice_loss_weight` | float | Dice loss term weight for segmentation mode | 0.0 |
+| `loss_function_masking` | bool | Apply segmentation mask to similarity loss (segmentation mode only) | false |
 | `samples_per_epoch` | int | Samples per epoch (optional) | null |
+
+### Input Shape Guidance
+
+- The released `unigradicon` / `multigradicon` weights were trained at `input_shape: [175, 175, 175]`.
+- You can finetune with a different `input_shape`, but convergence may be slower and you may need more epochs.
+- For the most stable transfer behavior, keep finetuning and inference preprocessing shapes consistent.
+- If you finetune at a very different shape, inference quality can change because the model sees a different resampling distribution than pretraining.
 
 ### Dataset Parameters
 
@@ -260,6 +273,26 @@ datasets:
 ```
 
 **Note:** Weights are relative; they do not need to sum to 1.0.
+
+## 🎯 Dice Loss and Masking
+
+When training with segmentation datasets (`unpaired_with_seg` or `paired_with_seg`), the total loss is:
+
+`L_total = lambda * L_inverse_consistency + L_similarity + dice_loss_weight * L_dice`
+
+- `dice_loss_weight` controls how strongly segmentation overlap is optimized.
+- Set `dice_loss_weight: 0.0` to disable Dice.
+
+### Important masking rule
+
+If you enable:
+
+```yaml
+training:
+  loss_function_masking: true
+```
+
+then Dice loss is not calculated in finetuning. In this mode, `dice_loss_weight` must be `0.0`.
 
 ### Auto-Download Pretrained Weights
 

@@ -152,7 +152,7 @@ class Dataset(TorchDataset):
         return image[0]
 
     def read_image_itk(self, path: str):
-        itk_image = reorient(itk.imread(path))
+        itk_image = reorient(itk.imread(path, itk.F))
         image = itk.GetArrayFromImage(itk_image)
         image = torch.tensor(image)
         return image
@@ -165,7 +165,7 @@ class Dataset(TorchDataset):
 
         dicom_files = namesGenerator.GetFileNames(seriesUID[0])
 
-        reader = itk.ImageSeriesReader[itk.Image[itk.SS, 3]].New()
+        reader = itk.ImageSeriesReader[itk.Image[itk.F, 3]].New()
         dicomIO = itk.GDCMImageIO.New()
         reader.SetImageIO(dicomIO)
         reader.SetFileNames(dicom_files)
