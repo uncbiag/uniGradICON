@@ -1,0 +1,169 @@
+name: Build and Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_testpypi:
+        description: 'Upload to TestPyPI'
+        required: true
+        default: 'false'
+        type: boolean
+      reason:
+        description: 'Reason for manual build'
+        required: false
+        default: 'Manual testing'
+
+jobs:
+  # Add a check job that verifies organization membership
+  check-membership:
+    runs-on: [self-hosted, linux]
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Check organization membership
+        uses: actions/github-script@v6
+        with:
+          script: |
+            try {
+              const isOrgMember = await github.rest.orgs.checkMembershipForUser({
+                org: 'uncbiag',
+                username: context.actor
+              });
+              if (isOrgMember.status !== 204) {
+                core.setFailed('Only members of uncbiag organization can manually trigger this workflow');
+                process.exit(1);
+              }
+            } catch (error) {
+              core.setFailed('Only members of uncbiag organization can manually trigger this workflow');
+            }
+
+  build:
+    runs-on: [self-hosted, linux]
+    needs: [check-membership]
+    if: always() && (github.event_name != 'workflow_dispatch' || success())
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          ref: main
+
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine pytest
+
+      - name: Build package
+        run: python -m build
+          
+      - name: Get package name and version
+        id: pkg_info
+        run: |
+          # Extract package name and version from setup.cfg
+          PKG_NAME=$(grep -m 1 "name = " setup.cfg | cut -d "=" -f 2 | tr -d '[:space:]')
+          PKG_VERSION=$(grep -m 1 "version = " setup.cfg | cut -d "=" -f 2 | tr -d '[:space:]')
+          echo "pkg_name=$PKG_NAME" >> $GITHUB_OUTPUT
+          echo "pkg_version=$PKG_VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Install package from local build
+        run: |
+          # Find and install the wheel file
+          WHEEL_FILE=$(find dist -name "*.whl" | head -n 1)
+          python -m pip install $WHEEL_FILE
+
+      - name: Download test data
+        run: |
+          wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
+          wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
+          wget https://www.hgreer.com/assets/RegLib_C01_1_foreground_mask.nii.gz
+        
+      - name: Run unit tests with GPU
+        run:
+          python -m unittest discover
+
+      - name: Test CLI with CPU
+        env:
+          CUDA_VISIBLE_DEVICES: ""  # Force CPU execution
+        run: |
+          echo "Running all tests on CPU"
+          
+          # All commands running on CPU
+          unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+              --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=None
+              
+          unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+              --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations=3
+              
+          unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1.nrrd \
+              --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
+              
+          unigradicon-warp --fixed=RegLib_C01_2.nrrd --moving=RegLib_C01_1_foreground_mask.nii.gz \
+              --transform=trans.hdf5 --warped_moving_out=warped_2_C01_1.nrrd --nearest_neighbor
+              
+          unigradicon-jacobian --fixed=RegLib_C01_2.nrrd --transform=trans.hdf5 --jacob=jacobian.nii.gz
+      
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dists
+          path: dist/
+  
+  testpypi-publish:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event.inputs.upload_to_testpypi == 'true'
+
+    permissions:
+      id-token: write
+    
+    environment:
+      name: pypi
+
+    outputs:
+      pkg_name: ${{ steps.set_pkg_info.outputs.pkg_name }}
+      pkg_version: ${{ steps.set_pkg_info.outputs.pkg_version }}
+
+    steps:
+      - name: Retrieve release distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: release-dists
+          path: dist/
+      
+      # Get package info from the build artifact
+      - name: Set package info
+        id: set_pkg_info
+        run: |
+          # Extract package name and version from a wheel file
+          WHEEL_FILE=$(find dist -name "*.whl" | head -n 1)
+          WHEEL_BASENAME=$(basename "$WHEEL_FILE")
+          PKG_NAME=$(echo "$WHEEL_BASENAME" | cut -d'-' -f1)
+          PKG_VERSION=$(echo "$WHEEL_BASENAME" | cut -d'-' -f2)
+          echo "pkg_name=$PKG_NAME" >> $GITHUB_OUTPUT
+          echo "pkg_version=$PKG_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Publish release distributions to test PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Verify installation from TestPyPI
+        run: |
+          python -m pip install --index-url https://test.pypi.org/simple/ --no-deps ${{ steps.set_pkg_info.outputs.pkg_name }}==${{ steps.set_pkg_info.outputs.pkg_version }}
+          # Install dependencies from PyPI (not TestPyPI)
+          python -m pip install ${{ steps.set_pkg_info.outputs.pkg_name }}==${{ steps.set_pkg_info.outputs.pkg_version }} --no-index --find-links dist/
+
+          wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
+          wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
+          unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri \
+              --transform_out=trans_testpypi.hdf5 --warped_moving_out=warped_testpypi.nrrd --io_iterations=None
+
+      
+      
