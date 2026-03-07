@@ -333,7 +333,7 @@ def main():
     parser.add_argument("--fixed", required=True, type=str,
                          help="The path of the fixed image.")
     parser.add_argument("--moving", required=True, type=str,
-                         help="The path of the fixed image.")
+                         help="The path of the moving image.")
     parser.add_argument("--fixed_modality", required=True,
                          type=str, help="The modality of the fixed image. Should be 'ct' or 'mri'.")
     parser.add_argument("--moving_modality", required=True,
