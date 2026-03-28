@@ -1,15 +1,32 @@
+import logging
 import torch
 import numpy as np
-import json
 import collections
 from tqdm import tqdm
 import random
 import os
 import footsteps
 import itk
-import SimpleITK
-from typing import List, Tuple, Optional, Union, Dict, Any
+from typing import List, Tuple, Optional, Dict
 from torch.utils.data import Dataset as TorchDataset
+
+try:
+    import blosc
+    blosc.set_nthreads(1)
+    _HAS_BLOSC = True
+except ImportError:
+    _HAS_BLOSC = False
+
+logger = logging.getLogger(__name__)
+
+
+def _deterministic_hash(modality_map: dict) -> str:
+    """Compute a deterministic hash of the modality map for cache validation.
+    Python's built-in hash() is randomized across processes (PYTHONHASHSEED),
+    so we use a sorted string representation instead."""
+    if not modality_map:
+        return ""
+    return str(sorted(modality_map.items()))
 
 
 def reorient(moving):
@@ -19,24 +36,89 @@ def reorient(moving):
         desired_coordinate_orientation = itk.AnatomicalOrientation(desired_coordinate_orientation)
 
     return itk.orient_image_filter(
-        moving, 
+        moving,
         desired_coordinate_orientation=desired_coordinate_orientation,
         use_image_direction=True)
 
+
+def _validate_cache(cache: dict, name: str, maximum_images, read_type: str, is_ct: bool,
+                    ct_window: Tuple[float, float], quantile_range: Tuple[float, float],
+                    modality_hash: str = ""):
+    """Validate cache metadata matches current dataset parameters."""
+    errors = []
+    if cache.get("name") != name:
+        errors.append(f"name: expected '{name}', got '{cache.get('name')}'")
+    if cache.get("maximum_images") != maximum_images:
+        errors.append(f"maximum_images: expected {maximum_images}, got {cache.get('maximum_images')}")
+    if cache.get("read_type") != read_type:
+        errors.append(f"read_type: expected '{read_type}', got '{cache.get('read_type')}'")
+    if cache.get("is_ct") != is_ct:
+        errors.append(f"is_ct: expected {is_ct}, got {cache.get('is_ct')}")
+    if cache.get("ct_window") != ct_window:
+        errors.append(f"ct_window: expected {ct_window}, got {cache.get('ct_window')}")
+    if cache.get("quantile_range") != quantile_range:
+        errors.append(f"quantile_range: expected {quantile_range}, got {cache.get('quantile_range')}")
+    if cache.get("modality_hash") != modality_hash:
+        errors.append(f"per-image modality settings changed")
+    if errors:
+        raise ValueError(
+            f"Cache file is stale or incompatible with current config. Mismatches: {'; '.join(errors)}. "
+            f"Delete the cache file and retry."
+        )
+
+
+def _build_pair_lookup(data, store, keys):
+    """Build subject-based pair lookup from loaded data.
+    Returns (pair_candidates, filtered_keys) where pair_candidates maps each
+    image path to a list of other paths from the same subject."""
+    subject_lookup = collections.defaultdict(list)
+    path_to_subject = {}
+    for item in data:
+        path = item['image']
+        subject_id = item.get('subject_id')
+        if path in store and subject_id:
+            path_to_subject[path] = subject_id
+            subject_lookup[subject_id].append(path)
+
+    pair_candidates = {}
+    for path, subject_id in path_to_subject.items():
+        others = [k for k in subject_lookup[subject_id] if k != path]
+        if others:
+            pair_candidates[path] = others
+
+    filtered_keys = [k for k in keys if k in pair_candidates]
+    return pair_candidates, filtered_keys
+
+
 class Dataset(TorchDataset):
-    def __init__(self, 
+    """Base dataset for medical image registration.
+
+    Loads and preprocesses 3D medical images for registration training.
+    Images are stored in memory after preprocessing for fast access during training.
+
+    Supports two image readers via ``read_type``:
+    - ``"itk"`` (default): reads NIfTI, NRRD, and other ITK-supported formats.
+    - ``"dicom"``: reads DICOM series directories (pass the directory path as ``image``).
+
+    Note: __getitem__ returns random image pairs regardless of the index argument.
+    This is by design for registration training where random pairing is standard.
+    The DataLoader's sampler controls how often each dataset is sampled in
+    multi-dataset training, not which specific pairs are returned.
+    """
+
+    def __init__(self,
                  input_shape: Tuple[int, ...],
                  name: str,
                  data: List[Dict[str, str]],
                  read_type: str = "itk",
-                 cache_filename: Optional[str] = None,
+                 cache_dir: Optional[str] = None,
                  maximum_images: Optional[int] = None,
                  shuffle: bool = False,
                  is_ct: bool = False,
                  ct_window: Tuple[float, float] = (-1000, 1000),
                  quantile_range: Tuple[float, float] = (0.01, 0.99),
                  use_cache: bool = True):
-        
+
         self.read_type = read_type
         self.name = name
         self.data = data
@@ -45,87 +127,72 @@ class Dataset(TorchDataset):
         self.ct_window = ct_window
         self.quantile_range = quantile_range
         self.use_cache = use_cache
-        
+
+        self._modality_map = {}
+        for item in data:
+            mod = item.get('modality')
+            if mod is not None:
+                if mod.lower() not in ('ct', 'mri'):
+                    raise ValueError(f"Invalid modality '{mod}' for {item['image']}. Must be 'ct' or 'mri'.")
+                self._modality_map[item['image']] = mod.lower() == 'ct'
+        self._modality_hash = _deterministic_hash(self._modality_map)
+
+        if self._modality_map and len(self._modality_map) < len(data):
+            missing = [item['image'] for item in data if item['image'] not in self._modality_map]
+            fallback = "CT" if self.is_ct else "MRI"
+            logger.warning(
+                f"Dataset '{name}': {len(missing)} of {len(data)} entries have no 'modality' field "
+                f"and will fall back to dataset-level is_ct={self.is_ct} ({fallback} preprocessing). "
+                f"First missing: {missing[0]}"
+            )
+
         if not data:
             raise ValueError(f"Dataset {name}: 'data' must be provided (from JSON source)")
-        
+
         if read_type == "itk":
             self.read_image = self.read_image_itk
-        elif read_type == "sitk":
-            self.read_image = self.read_image_sitk
         elif read_type == "dicom":
             self.read_image = self.read_image_dicom
         else:
-            raise ValueError(f"Invalid read_type: {read_type}. Must be 'itk', 'sitk', or 'dicom'")
+            raise ValueError(f"Invalid read_type: {read_type}. Must be 'itk' or 'dicom'")
 
-        if not use_cache:
-            print(f"Loading images without cache...")
-            self.store = {}
-            paths = self.get_image_paths()
-            if shuffle:
-                random.shuffle(paths)
-            if maximum_images:
-                paths = paths[:maximum_images]
-            for path in tqdm(paths):
-                try:
-                    self.store[path] = {"image": self.preprocess_image(path)}
-                except Exception as e:
-                    print(e)
-        elif not cache_filename:
-            self.store = {}
-            paths = self.get_image_paths()
-            if shuffle:
-                random.shuffle(paths)
-            if maximum_images:
-                paths = paths[:maximum_images]
-            for path in tqdm(paths):
-                try:
-                    self.store[path] = {"image": self.preprocess_image(path)}
-                except Exception as e:
-                    print(e)
-
-            torch.save(
-                {
-                    "name": self.name,
-                    "maximum_images": maximum_images,
-                    "store": self.store,
-                    "read_type": self.read_type,
-                    "is_ct": self.is_ct,
-                    "ct_window": self.ct_window,
-                    "quantile_range": self.quantile_range,
-                },
-                footsteps.output_dir + self.name + "_cached_dataset.trch",
-            )
-        else:
-            cache_path = cache_filename + "/" + self.name + "_cached_dataset.trch"
-            if os.path.exists(cache_path):
-                loaded_cache = torch.load(cache_path, map_location="cpu", weights_only=False)
-                
-                assert self.name == loaded_cache["name"]
-                assert maximum_images == loaded_cache["maximum_images"]
-                assert self.read_type == loaded_cache["read_type"]
-                assert self.is_ct == loaded_cache["is_ct"]
-                if self.is_ct:
-                    assert self.ct_window == loaded_cache["ct_window"]
-                else:
-                    assert self.quantile_range == loaded_cache["quantile_range"]
-                
-                paths = self.get_image_paths()
-                self.store = loaded_cache["store"]
+        self._cache_path = None
+        if use_cache:
+            if cache_dir:
+                self._cache_path = os.path.join(cache_dir, self.name + "_cached_dataset.trch")
             else:
-                os.makedirs(cache_filename, exist_ok=True)
-                self.store = {}
-                paths = self.get_image_paths()
-                if shuffle:
-                    random.shuffle(paths)
-                if maximum_images:
-                    paths = paths[:maximum_images]
-                for path in tqdm(paths):
-                    try:
-                        self.store[path] = {"image": self.preprocess_image(path)}
-                    except Exception as e:
-                        print(e)
-                
+                self._cache_path = os.path.join(footsteps.output_dir, self.name + "_cached_dataset.trch")
+
+        if self._cache_path and os.path.exists(self._cache_path):
+            loaded_cache = torch.load(self._cache_path, map_location="cpu", weights_only=False)
+            _validate_cache(loaded_cache, self.name, maximum_images, self.read_type,
+                            self.is_ct, self.ct_window, self.quantile_range,
+                            self._modality_hash)
+            self.store = loaded_cache["store"]
+        else:
+            self.store = {}
+            paths = self.get_image_paths()
+            if shuffle:
+                random.shuffle(paths)
+            if maximum_images:
+                paths = paths[:maximum_images]
+
+            failed = 0
+            for path in tqdm(paths):
+                try:
+                    self.store[path] = {"image": self.preprocess_image(path)}
+                except Exception as e:
+                    logger.warning(f"Failed to load {path}: {e}")
+                    failed += 1
+
+            if failed == len(paths):
+                raise RuntimeError(f"Dataset {self.name}: all {failed} images failed to load")
+            if failed > 0:
+                pct = failed / len(paths) * 100
+                logger.warning(f"{failed}/{len(paths)} ({pct:.1f}%) images failed to load")
+
+            if self._cache_path:
+                os.makedirs(os.path.dirname(os.path.abspath(self._cache_path)), exist_ok=True)
                 torch.save(
                     {
                         "name": self.name,
@@ -135,33 +202,35 @@ class Dataset(TorchDataset):
                         "is_ct": self.is_ct,
                         "ct_window": self.ct_window,
                         "quantile_range": self.quantile_range,
+                        "modality_hash": self._modality_hash,
                     },
-                    cache_path,
+                    self._cache_path,
                 )
-            
+
         self.keys = list(self.store.keys())
-        print("Image count: ", len(self.keys))
+        if len(self.keys) < 2:
+            raise ValueError(f"Dataset '{self.name}': need at least 2 images for registration pairs, got {len(self.keys)}")
+        logger.info(f"Dataset '{self.name}': {len(self.keys)} images loaded")
 
     def get_image_paths(self) -> List[str]:
         return [item['image'] for item in self.data]
-
-    def read_image_sitk(self, path: str):
-        itk_image = SimpleITK.ReadImage(path)
-        image = SimpleITK.GetArrayFromImage(itk_image)
-        image = torch.tensor(image)
-        return image[0]
 
     def read_image_itk(self, path: str):
         itk_image = reorient(itk.imread(path, itk.F))
         image = itk.GetArrayFromImage(itk_image)
         image = torch.tensor(image)
         return image
-    
+
     def read_image_dicom(self, path: str):
         namesGenerator = itk.GDCMSeriesFileNames.New()
         namesGenerator.SetUseSeriesDetails(True)
         namesGenerator.SetDirectory(path)
         seriesUID = namesGenerator.GetSeriesUIDs()
+
+        if len(seriesUID) == 0:
+            raise ValueError(f"{path}: no DICOM series found in directory")
+        if len(seriesUID) > 1:
+            logger.warning(f"{path}: {len(seriesUID)} DICOM series found, using first")
 
         dicom_files = namesGenerator.GetFileNames(seriesUID[0])
 
@@ -191,149 +260,163 @@ class Dataset(TorchDataset):
 
         image_array = itk.GetArrayFromImage(image)
         image_tensor = torch.tensor(image_array)
-    
+
         if np.any(np.array(image_array.shape) < 20):
             raise ValueError(f"{path}: image too low resolution")
 
         return image_tensor
-    
+
     def preprocess_image(self, path: str):
         image = self.read_image(path)
 
         image = image[None, None]
         image = image.float()
         image = torch.nn.functional.interpolate(
-            image, self.input_shape, mode="trilinear"
+            image, self.input_shape, mode="trilinear", align_corners=True
         )
 
-        im_min = self.ct_window[0] if self.is_ct else torch.quantile(image.view(-1), self.quantile_range[0])
-        im_max = self.ct_window[1] if self.is_ct else torch.quantile(image.view(-1), self.quantile_range[1])
-        
+        is_ct = self._modality_map.get(path, self.is_ct)
+        im_min = self.ct_window[0] if is_ct else torch.quantile(image.view(-1), self.quantile_range[0])
+        im_max = self.ct_window[1] if is_ct else torch.quantile(image.view(-1), self.quantile_range[1])
+
         image = torch.clip(image, im_min, im_max)
         image = image - im_min
-        image = image / (im_max - im_min)
+        intensity_range = im_max - im_min
+        if intensity_range > 0:
+            image = image / intensity_range
 
         return image[0]
 
+    def _pack(self, tensor: torch.Tensor):
+        """Compress a tensor for in-memory storage."""
+        if _HAS_BLOSC:
+            return blosc.pack_array(tensor.numpy())
+        return tensor
+
+    def _unpack(self, packed) -> torch.Tensor:
+        """Decompress stored data back to a tensor."""
+        if _HAS_BLOSC and isinstance(packed, bytes):
+            return torch.from_numpy(blosc.unpack_array(packed))
+        return packed
+
+    def compress(self):
+        """Compress all stored tensors with blosc for memory-efficient storage.
+        Enables parallel decompression via DataLoader workers."""
+        if not _HAS_BLOSC:
+            logger.warning("blosc not available, skipping compression. Install with: pip install blosc")
+            return self
+        for key in self.store:
+            for tensor_key in self.store[key]:
+                val = self.store[key][tensor_key]
+                if torch.is_tensor(val):
+                    self.store[key][tensor_key] = self._pack(val)
+        logger.info(f"Dataset '{self.name}': compressed with blosc")
+        return self
+
     def get_image(self, key: str) -> torch.Tensor:
-        unprepped_image = self.store[key]["image"]
-        return unprepped_image
+        return self._unpack(self.store[key]["image"])
 
     def get_key_pair(self) -> Tuple[str, str]:
-        return (random.choice(self.keys), random.choice(self.keys))
+        return tuple(random.sample(self.keys, 2))
 
     def get_pair(self):
         pair = self.get_key_pair()
         return self.get_image(pair[0]), self.get_image(pair[1])
-    
+
     def __len__(self):
         return len(self.keys)
-    
+
     def __getitem__(self, index):
         return self.get_pair()
 
 
 class PairedDataset(Dataset):
-    def __init__(
-        self,
-        input_shape,
-        name: str,
-        data: List[Dict[str, str]],
-        cache_filename=None,
-        maximum_images=None,
-        is_ct: bool = False,
-        ct_window: Tuple[float, float] = (-1000, 1000),
-        quantile_range: Tuple[float, float] = (0.01, 0.99),
-        read_type: str = "itk",
-        shuffle: bool = False,
-        use_cache: bool = True,
-    ):
-        super().__init__(
-            input_shape,
-            name,
-            data,
-            cache_filename=cache_filename,
-            maximum_images=maximum_images,
-            is_ct=is_ct,
-            ct_window=ct_window,
-            quantile_range=quantile_range,
-            read_type=read_type,
-            shuffle=shuffle,
-            use_cache=use_cache,
-        )
+    """Paired dataset that returns image pairs from the same subject.
 
-        self.pair_lookup = collections.defaultdict(list)
-        self.pair_keys = {}
+    Accepts all parameters from Dataset. Data entries must include ``subject_id``
+    with at least 2 images per subject.
+    """
 
-        for item in self.data:
-            path = item['image']
-            subject_id = item.get('subject_id')
-            if path in self.store and subject_id:
-                self.pair_keys[path] = subject_id
-                self.pair_lookup[subject_id].append(path)
-        
-        self.keys = [k for k in self.keys if k in self.pair_keys and len(self.pair_lookup[self.pair_keys[k]]) > 1]
-        print("Paired image count: ", len(self.keys))
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.pair_candidates, self.keys = _build_pair_lookup(self.data, self.store, self.keys)
+        if not self.keys:
+            raise ValueError(
+                f"Dataset '{self.name}': no valid pairs found. "
+                f"Ensure data entries have 'subject_id' and at least 2 images per subject."
+            )
+        logger.info(f"Dataset '{self.name}': {len(self.keys)} paired images")
 
     def get_key_pair(self):
-        image_key_1 = random.choice(self.keys)
-        subject_id = self.pair_keys[image_key_1]
-        candidates = [k for k in self.pair_lookup[subject_id] if k != image_key_1]
-        image_key_2 = random.choice(candidates)
-        return (image_key_1, image_key_2)
+        key1 = random.choice(self.keys)
+        return (key1, random.choice(self.pair_candidates[key1]))
+
 
 class ImageSegmentationDataset(Dataset):
-    def __init__(self,
-                 input_shape: Tuple[int, ...],
-                 name: str,
-                 data: List[Dict[str, str]],
-                 read_type: str = "itk",
-                 cache_filename: Optional[str] = None,
-                 maximum_images: Optional[int] = None,
-                 shuffle: bool = False,
-                 is_ct: bool = False,
-                 ct_window: Tuple[float, float] = (-1000, 1000),
-                 quantile_range: Tuple[float, float] = (0.01, 0.99),
-                 use_cache: bool = True):
-        
-        self.segmentation_map = {item['image']: item['segmentation'] for item in data}
-        
-        super().__init__(input_shape=input_shape,
-                         name=name,
-                         data=data,
-                         read_type=read_type,
-                         cache_filename=cache_filename,
-                         maximum_images=maximum_images,
-                         shuffle=shuffle,
-                         is_ct=is_ct,
-                         ct_window=ct_window,
-                         quantile_range=quantile_range,
-                         use_cache=use_cache)
-        
-        for path in self.keys:
+    """Unpaired dataset with segmentation masks for registration training.
+
+    Accepts all parameters from Dataset. Data entries must include a
+    ``segmentation`` path alongside each ``image``.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.segmentation_map = {item['image']: item['segmentation']
+                                 for item in self.data if item['image'] in self.store}
+
+        seg_cache_path = None
+        if self._cache_path:
+            seg_cache_path = self._cache_path.replace("_cached_dataset.trch", "_cached_segmentations.trch")
+
+        if seg_cache_path and os.path.exists(seg_cache_path):
+            seg_cache = torch.load(seg_cache_path, map_location="cpu", weights_only=False)
+            cached_shape = seg_cache.get("input_shape")
+            cached_keys = seg_cache.get("data", {})
+            if cached_shape == list(self.input_shape) and all(path in cached_keys for path in self.keys):
+                for path in self.keys:
+                    self.store[path]["segmentation"] = cached_keys[path]
+            else:
+                self._process_and_cache_segmentations(seg_cache_path)
+        else:
+            self._process_and_cache_segmentations(seg_cache_path)
+
+    def _process_and_cache_segmentations(self, seg_cache_path: Optional[str]):
+        failed_keys = []
+        for path in tqdm(self.keys, desc=f"Processing segmentations for {self.name}"):
             try:
                 self.store[path]["segmentation"] = self.preprocess_segmentation(path)
             except Exception as e:
-                print(f"Failed to process segmentation for {path}: {e}")
-    
-    def get_image_paths(self) -> List[str]:
-         return [item['image'] for item in self.data]
+                logger.warning(f"Failed to process segmentation for {path}: {e}")
+                failed_keys.append(path)
+        for path in failed_keys:
+            self.keys.remove(path)
+            del self.store[path]
+        if failed_keys:
+            logger.warning(f"Removed {len(failed_keys)} images with failed segmentations")
+
+        if seg_cache_path:
+            os.makedirs(os.path.dirname(os.path.abspath(seg_cache_path)), exist_ok=True)
+            torch.save(
+                {
+                    "input_shape": list(self.input_shape),
+                    "data": {path: self.store[path]["segmentation"] for path in self.keys},
+                },
+                seg_cache_path,
+            )
 
     def get_segmentation_path(self, image_path: str) -> Optional[str]:
-         return self.segmentation_map.get(image_path)
+        return self.segmentation_map.get(image_path)
 
     def preprocess_segmentation(self, image_path: str) -> torch.Tensor:
         seg_path = self.get_segmentation_path(image_path)
-        seg = self.read_image(seg_path)
+        seg = self.read_image_itk(seg_path)
         seg = seg[None, None].float()
         seg = torch.nn.functional.interpolate(seg, self.input_shape, mode="nearest")
         return seg[0]
 
-    def get_image(self, key: str) -> torch.Tensor:
-        return self.store[key]["image"]
-
     def get_segmentation(self, key: str) -> torch.Tensor:
-        return self.store[key]["segmentation"]
+        return self._unpack(self.store[key]["segmentation"])
 
     def get_pair(self):
         pair = self.get_key_pair()
@@ -343,58 +426,25 @@ class ImageSegmentationDataset(Dataset):
             self.get_segmentation(pair[0]),
             self.get_segmentation(pair[1]),
         )
-        
+
+
 class PairedImageSegmentationDataset(ImageSegmentationDataset):
-    def __init__(self,
-                 input_shape: Tuple[int, ...],
-                 name: str,
-                 data: List[Dict[str, str]],
-                 read_type: str = "itk",
-                 cache_filename: Optional[str] = None,
-                 maximum_images: Optional[int] = None,
-                 shuffle: bool = False,
-                 is_ct: bool = False,
-                 ct_window: Tuple[float, float] = (-1000, 1000),
-                 quantile_range: Tuple[float, float] = (0.01, 0.99),
-                 use_cache: bool = True):
-        
-        super().__init__(input_shape=input_shape,
-                         name=name,
-                         data=data,
-                         read_type=read_type,
-                         cache_filename=cache_filename,
-                         maximum_images=maximum_images,
-                         shuffle=shuffle,
-                         is_ct=is_ct,
-                         ct_window=ct_window,
-                         quantile_range=quantile_range,
-                         use_cache=use_cache)
+    """Paired dataset with segmentation masks for registration training.
 
-        self.pair_lookup = collections.defaultdict(list)
-        self.pair_keys = {}
-        
-        for item in self.data:
-            path = item['image']
-            subject_id = item.get('subject_id')
-            if path in self.store and subject_id:
-                self.pair_keys[path] = subject_id
-                self.pair_lookup[subject_id].append(path)
+    Accepts all parameters from Dataset. Data entries must include ``subject_id``
+    and ``segmentation``, with at least 2 images per subject.
+    """
 
-        self.keys = [k for k in self.keys if k in self.pair_keys and len(self.pair_lookup[self.pair_keys[k]]) > 1]
-        print("Paired segmentation count:", len(self.keys))
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.pair_candidates, self.keys = _build_pair_lookup(self.data, self.store, self.keys)
+        if not self.keys:
+            raise ValueError(
+                f"Dataset '{self.name}': no valid pairs found. "
+                f"Ensure data entries have 'subject_id' and at least 2 images per subject."
+            )
+        logger.info(f"Dataset '{self.name}': {len(self.keys)} paired segmentation images")
 
-    def get_key_pair(self) -> Tuple[str, str]:
-        image_key_1 = random.choice(self.keys)
-        subject_id = self.pair_keys[image_key_1]
-        candidates = [k for k in self.pair_lookup[subject_id] if k != image_key_1]
-        image_key_2 = random.choice(candidates)
-        return (image_key_1, image_key_2)
-
-    def get_pair(self):
-        k1, k2 = self.get_key_pair()
-        return (
-            self.get_image(k1),
-            self.get_image(k2),
-            self.get_segmentation(k1),
-            self.get_segmentation(k2),
-        )
+    def get_key_pair(self):
+        key1 = random.choice(self.keys)
+        return (key1, random.choice(self.pair_candidates[key1]))

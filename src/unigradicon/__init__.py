@@ -42,10 +42,21 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             
         if self.dice_loss_weight > 0.0:
             assert mask_A is not None and mask_B is not None, "mask_A and mask_B must be provided when dice_loss_weight>0"
-            num_classes = int(torch.max(mask_A.max(), mask_B.max()).item() + 1)
-            
-            mask_A_one_hot = F.one_hot(mask_A.long(), num_classes=num_classes)[:,0].permute(0, 4, 1, 2, 3).float()
-            mask_B_one_hot = F.one_hot(mask_B.long(), num_classes=num_classes)[:,0].permute(0, 4, 1, 2, 3).float()
+            unique_A = torch.unique(mask_A.long())
+            unique_B = torch.unique(mask_B.long())
+            common_labels = unique_A[torch.isin(unique_A, unique_B)]
+            common_labels = common_labels[common_labels != 0]  # exclude background
+            num_classes = len(common_labels)
+
+            if num_classes == 0:
+                mask_A_one_hot = mask_B_one_hot = None
+            else:
+                max_label = int(torch.max(unique_A.max(), unique_B.max()).item())
+                remap = torch.zeros(max_label + 1, dtype=torch.long, device=mask_A.device)
+                remap[common_labels] = torch.arange(1, num_classes + 1, device=mask_A.device)
+
+                mask_A_one_hot = F.one_hot(remap[mask_A.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
+                mask_B_one_hot = F.one_hot(remap[mask_B.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
 
         # Tag used elsewhere for optimization.
         # Must be set at beginning of forward b/c not preserved by .cuda() etc
@@ -56,10 +67,6 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
 
         self.phi_AB_vectorfield = self.phi_AB(self.identity_map)
         self.phi_BA_vectorfield = self.phi_BA(self.identity_map)
-
-        # tag images during warping so that the similarity measure
-        # can use information about whether a sample is interpolated
-        # or extrapolated
 
         if getattr(self.similarity, "isInterpolated", False):
             # tag images during warping so that the similarity measure
@@ -87,30 +94,30 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             jacobian_BA = self.compute_jacobian_determinant(self.phi_BA_vectorfield)
             
         self.warped_image_A = compute_warped_image_multiNC(
-            torch.cat([image_A, inbounds_tag], axis=1) if inbounds_tag is not None else image_A,
+            torch.cat([image_A, inbounds_tag], dim=1) if inbounds_tag is not None else image_A,
             self.phi_AB_vectorfield,
             self.spacing,
             1,
             zero_boundary=True
         )
         self.warped_image_B = compute_warped_image_multiNC(
-            torch.cat([image_B, inbounds_tag], axis=1) if inbounds_tag is not None else image_B,
+            torch.cat([image_B, inbounds_tag], dim=1) if inbounds_tag is not None else image_B,
             self.phi_BA_vectorfield,
             self.spacing,
             1,
             zero_boundary=True
         )
 
-        if self.dice_loss_weight > 0.0:
+        if self.dice_loss_weight > 0.0 and mask_A_one_hot is not None:
             self.warped_seg_A = compute_warped_image_multiNC(
-                torch.cat([mask_A_one_hot, inbounds_tag], axis=1) if inbounds_tag is not None else mask_A_one_hot.float(),
+                torch.cat([mask_A_one_hot, inbounds_tag], dim=1) if inbounds_tag is not None else mask_A_one_hot.float(),
                 self.phi_AB_vectorfield,
                 self.spacing,
                 1,
             )
-        
+
             self.warped_seg_B = compute_warped_image_multiNC(
-                torch.cat([mask_B_one_hot, inbounds_tag], axis=1) if inbounds_tag is not None else mask_B_one_hot.float(),
+                torch.cat([mask_B_one_hot, inbounds_tag], dim=1) if inbounds_tag is not None else mask_B_one_hot.float(),
                 self.phi_BA_vectorfield,
                 self.spacing,
                 1,
@@ -121,14 +128,14 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             
         if self.use_label:
             self.warped_label_A = compute_warped_image_multiNC(
-                torch.cat([label_A, inbounds_tag], axis=1) if inbounds_tag is not None else label_A,
+                torch.cat([label_A, inbounds_tag], dim=1) if inbounds_tag is not None else label_A,
                 self.phi_AB_vectorfield,
                 self.spacing,
                 1,
             )
             
             self.warped_label_B = compute_warped_image_multiNC(
-                torch.cat([label_B, inbounds_tag], axis=1) if inbounds_tag is not None else label_B,
+                torch.cat([label_B, inbounds_tag], dim=1) if inbounds_tag is not None else label_B,
                 self.phi_BA_vectorfield,
                 self.spacing,
                 1,
@@ -190,7 +197,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         elif len(self.identity_map.shape) == 5:
             dx = torch.tensor([[[[[delta]]], [[[0.0]]], [[[0.0]]]]]).to(config.device)
             dy = torch.tensor([[[[[0.0]]], [[[delta]]], [[[0.0]]]]]).to(config.device)
-            dz = torch.tensor([[[[0.0]]], [[[0.0]]], [[[delta]]]]).to(config.device)
+            dz = torch.tensor([[[[[0.0]]], [[[0.0]]], [[[delta]]]]]).to(config.device)
             direction_vectors = (dx, dy, dz)
         elif len(self.identity_map.shape) == 3:
             dx = torch.tensor([[[delta]]]).to(config.device)
@@ -212,7 +219,6 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             (self.identity_map - self.phi_AB_vectorfield) ** 2
         )
         
-        # Return extended loss with dice_loss if dice_loss_weight > 0, otherwise standard ICONLoss
         if self.dice_loss_weight > 0.0:
             return ICONDiceLoss(
                 all_loss,
@@ -279,6 +285,18 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         del self.phi_AB, self.phi_BA, self.phi_AB_vectorfield, self.phi_BA_vectorfield, self.warped_image_A, self.warped_image_B
         if self.use_label:
             del self.warped_label_A, self.warped_label_B
+        if hasattr(self, 'warped_seg_A'):
+            del self.warped_seg_A
+        if hasattr(self, 'warped_seg_B'):
+            del self.warped_seg_B
+        if hasattr(self, 'warped_loss_input_A'):
+            del self.warped_loss_input_A
+        if hasattr(self, 'warped_loss_input_B'):
+            del self.warped_loss_input_B
+        if hasattr(self, 'warped_loss_input_A_jacob'):
+            del self.warped_loss_input_A_jacob
+        if hasattr(self, 'warped_loss_input_B_jacob'):
+            del self.warped_loss_input_B_jacob
 
 def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.LNCC(sigma=5), use_label=False, apply_intensity_conservation_loss=False, dice_loss_weight=0.0, loss_function_masking=False):
     dimension = len(input_shape) - 2
@@ -296,13 +314,13 @@ def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.L
     net.assign_identity_map(input_shape)
     return net
 
-def make_sim(similarity):
+def make_sim(similarity, sigma=5, mind_radius=2, mind_dilation=2):
     if similarity == "lncc":
-        return icon.LNCC(sigma=5)
+        return icon.LNCC(sigma=sigma)
     elif similarity == "lncc2":
-        return icon.losses.SquaredLNCC(sigma=5)
+        return icon.losses.SquaredLNCC(sigma=sigma)
     elif similarity == "mind":
-        return icon.losses.MINDSSC(radius=2, dilation=2)
+        return icon.losses.MINDSSC(radius=mind_radius, dilation=mind_dilation)
     else:
         raise ValueError(f"Similarity measure {similarity} not recognized. Choose from [lncc, lncc2, mind].")
 
@@ -366,7 +384,7 @@ def get_model_from_model_zoo(model_name="unigradicon", loss_fn=icon.LNCC(sigma=5
 def quantile(arr: torch.Tensor, q):
     arr = arr.flatten()
     l = len(arr)
-    return torch.kthvalue(arr, int(q * l)).values
+    return torch.kthvalue(arr, max(1, min(int(q * l), l))).values
 
 def apply_mask(image, segmentation):
     segmentation_cast_filter = itk.CastImageFilter[type(segmentation),
@@ -383,21 +401,39 @@ def apply_mask(image, segmentation):
 
     return mask_filter.GetOutput()
 
-def preprocess(image, modality="ct", segmentation=None):
+def preprocess(image, modality="ct", segmentation=None, ct_window=None, quantile_range=None):
+    """Preprocess a medical image for registration.
+
+    Args:
+        image: ITK image to preprocess.
+        modality: 'ct' or 'mri'.
+        segmentation: Optional ITK segmentation to mask the image (ROI masking).
+        ct_window: Optional (min, max) HU window for CT. Default: (-1000, 1000).
+        quantile_range: Optional (lower, upper) quantile range for MRI normalization.
+            Default (None): uses actual image min and 99th percentile.
+            Set to (0.01, 0.99) to match the default finetuning preprocessing.
+    """
     if modality == "ct":
-        min_ = -1000
-        max_ = 1000
+        if ct_window is None:
+            ct_window = (-1000, 1000)
+        min_ = ct_window[0]
+        max_ = ct_window[1]
         image = itk.CastImageFilter[type(image), itk.Image[itk.F, 3]].New()(image)
         image = itk.clamp_image_filter(image, Bounds=(min_, max_))
     elif modality == "mri":
         image = itk.CastImageFilter[type(image), itk.Image[itk.F, 3]].New()(image)
-        min_, _ = itk.image_intensity_min_max(image)
-        max_ = quantile(torch.tensor(np.array(image)), .99).item()
+        if quantile_range is not None:
+            arr = torch.tensor(np.array(image))
+            min_ = quantile(arr, quantile_range[0]).item()
+            max_ = quantile(arr, quantile_range[1]).item()
+        else:
+            min_, _ = itk.image_intensity_min_max(image)
+            max_ = quantile(torch.tensor(np.array(image)), .99).item()
         image = itk.clamp_image_filter(image, Bounds=(min_, max_))
     else:
         raise ValueError(f"{modality} not recognized. Use 'ct' or 'mri'.")
 
-    image = itk.shift_scale_image_filter(image, shift=-min_, scale = 1/(max_-min_)) 
+    image = itk.shift_scale_image_filter(image, shift=-min_, scale = 1/(max_-min_))
 
     if segmentation is not None:
         image = apply_mask(image, segmentation)
@@ -410,7 +446,7 @@ def main():
     parser.add_argument("--fixed", required=True, type=str,
                          help="The path of the fixed image.")
     parser.add_argument("--moving", required=True, type=str,
-                         help="The path of the fixed image.")
+                         help="The path of the moving image.")
     parser.add_argument("--fixed_modality", required=True,
                          type=str, help="The modality of the fixed image. Should be 'ct' or 'mri'.")
     parser.add_argument("--moving_modality", required=True,
@@ -447,6 +483,13 @@ def main():
     parser.add_argument("--network_weights", required=False, type=str, default=None,
                             help="Path to a custom network weights checkpoint (e.g., results/.../network_weights_100). "
                                  "If omitted, packaged weights are downloaded/used.")
+    parser.add_argument("--ct_window", required=False, nargs=2, type=float, default=None, metavar=("MIN", "MAX"),
+                            help="Custom CT HU window [min max]. Default: -1000 1000. "
+                                 "Use to match finetuning preprocessing if you used a custom ct_window.")
+    parser.add_argument("--quantile_range", required=False, nargs=2, type=float, default=None, metavar=("LOWER", "UPPER"),
+                            help="Custom quantile range [lower upper] for MRI intensity normalization. "
+                                 "Default: actual image min and 99th percentile. "
+                                 "Set to 0.01 0.99 to match the default finetuning preprocessing.")
 
     args = parser.parse_args()
     
@@ -491,21 +534,23 @@ def main():
         io_iterations = int(args.io_iterations)
 
     # Apply ROI masking to inputs if requested
+    ct_win = tuple(args.ct_window) if args.ct_window else None
+    q_range = tuple(args.quantile_range) if args.quantile_range else None
+
     masked_moving = preprocess(
         moving,
         args.moving_modality,
         moving_segmentation if args.masking_mode == "roi" else None,
+        ct_window=ct_win,
+        quantile_range=q_range,
     )
     masked_fixed = preprocess(
         fixed,
         args.fixed_modality,
         fixed_segmentation if args.masking_mode == "roi" else None,
+        ct_window=ct_win,
+        quantile_range=q_range,
     )
-
-    if use_loss_masks and args.masking_mode == "none":
-        # Ensure loss masks exist even if not used for ROI masking
-        masked_moving = preprocess(moving, args.moving_modality, None)
-        masked_fixed = preprocess(fixed, args.fixed_modality, None)
 
     if use_loss_masks:
         phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(

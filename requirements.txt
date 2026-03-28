@@ -1,2 +1,4 @@
 icon_registration>=1.1.6
 numpy<1.24; python_version < "3.9"
+pyyaml
+blosc

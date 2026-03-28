@@ -1,7 +1,6 @@
 experiment:
   name: "multi_dataset_example"
-  model: "unigradicon"
-  weights_path: "../network_weights/unigradicon1.0/Step_2_final.trch"
+  model_weights: "unigradicon"  # Auto-downloads pretrained weights; or set to a local path
 
 training:
   batch_size: 4
@@ -24,10 +23,10 @@ datasets:
     is_ct: false
     quantile_range: [0.01, 0.99]
 
-  # Second dataset: CT example (using same json for demo, but typically would be different)
+  # Second dataset: CT example (using same json for demo — replace with your actual CT dataset JSON)
   - name: "dataset_ct"
     type: "unpaired"
-    json_file: "example_unpaired.json" 
+    json_file: "example_unpaired.json"
     weight: 0.4  # 40% of batches will come from this dataset
     is_ct: true
     ct_window: [-1000, 1000]

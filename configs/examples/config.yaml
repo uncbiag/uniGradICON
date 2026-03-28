@@ -1,7 +1,6 @@
 experiment:
   name: "example_experiment"
-  model: "unigradicon"
-  weights_path: "../network_weights/unigradicon1.0/Step_2_final.trch"
+  model_weights: "unigradicon"  # Auto-downloads pretrained weights; or set to a local path
 
 training:
   batch_size: 4

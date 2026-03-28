@@ -84,18 +84,33 @@ unigradicon-register ... --masking_mode loss --loss_function_masking
 
 This loss function ensures proper intensity adjustments for registration tasks requiring mass conservation, utilizing the change of variables rule from integration. To be effective, images must be in an intensity space where conservation holds. This loss function is specifically valid for CT modality, where -1000 HU represents air. To apply determinant-based intensity correction during registration in the IO:
 ```
-unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --intensity_conservation_loss
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=ct --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=ct --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --intensity_conservation_loss
 ```
 
 To optimize using Dice loss for improved anatomical structure alignment, provide segmentations and set a Dice loss weight. When enabled, the system converts the segmentations to one-hot encoding, warps them along with the images, and adds a weighted Dice loss term to the optimization objective. This encourages better alignment of corresponding anatomical structures between images.
 
 The total loss becomes:  
-`L_total = λ × L_inverse_consistency + L_similarity + dice_loss_weight × L_dice`.
+`L_total = lambda * L_inverse_consistency + L_similarity + dice_loss_weight * L_dice`.
 
 This feature is particularly useful for organ registration, brain structure alignment, and other tasks where anatomical correspondence is critical. Note that the model expects segmentations to be single-channel images with the same shape as the input images. The segmentations are automatically converted to one-hot encoding.
 
 ```
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --dice_loss_weight 0.1
+```
+
+To use custom network weights (e.g., after [finetuning](src/unigradicon/finetuning/README.md)):
+```
+unigradicon-register --fixed=fixed.nii.gz --fixed_modality=mri --moving=moving.nii.gz --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped.nii.gz --network_weights /path/to/network_weights_final.trch
+```
+
+To match custom preprocessing used during finetuning, use `--ct_window` (for CT) or `--quantile_range` (for MRI):
+```
+unigradicon-register --fixed=fixed.nii.gz --fixed_modality=mri --moving=moving.nii.gz --moving_modality=mri --transform_out=trans.hdf5 --quantile_range 0.01 0.99 --network_weights /path/to/network_weights_final.trch
+```
+
+To finetune on your own data, see the [finetuning guide](./src/unigradicon/finetuning/README.md):
+```
+unigradicon-finetune --config /path/to/config.yaml
 ```
 
 To warp an image
@@ -280,7 +295,7 @@ A Slicer extensions is available [here](https://github.com/uncbiag/SlicerUniGrad
 
 ## Finetuning
 
-You can finetune the `uniGradICON` model on your own data using the [finetuning guide](src/unigradicon/finetuning/README.md).
+You can finetune the `uniGradICON` model on your own data using the [finetuning guide](./src/unigradicon/finetuning/README.md).
 
 ## Get involved
 
