@@ -51,14 +51,17 @@ def _affine_warp(image, forward, mode='bilinear'):
     )
 
 
-def augment(image_A, image_B, seg_A=None, seg_B=None):
-    """Apply random affine augmentation to image (and optional segmentation) pairs.
+def augment(batch):
+    """Apply random affine augmentation to all spatial data in a batch dict.
 
-    Uses shared random flip/permutation for both images with different noise,
-    so they share orientation but have slightly different affine perturbations.
+    Images are warped with bilinear interpolation; segmentations and masks
+    use nearest interpolation to preserve label values.
+
+    Both images share the same random flip/permutation but have slightly
+    different affine noise, so they share orientation but differ in detail.
     """
-    device = image_A.device
-    batch_size = image_A.shape[0]
+    device = batch["image_A"].device
+    batch_size = batch["image_A"].shape[0]
 
     identity_list = []
     for _ in range(batch_size):
@@ -74,15 +77,18 @@ def augment(image_A, image_B, seg_A=None, seg_B=None):
 
     noise_A = torch.randn((batch_size, 3, 4), device=device)
     forward_A = identity + 0.05 * noise_A
-    warped_A = _affine_warp(image_A, forward_A)
-    warped_seg_A = _affine_warp(seg_A, forward_A, mode='nearest') if seg_A is not None else None
-
     noise_B = torch.randn((batch_size, 3, 4), device=device)
     forward_B = identity + 0.05 * noise_B
-    warped_B = _affine_warp(image_B, forward_B)
-    warped_seg_B = _affine_warp(seg_B, forward_B, mode='nearest') if seg_B is not None else None
 
-    return warped_A, warped_B, warped_seg_A, warped_seg_B
+    result = {}
+    for key, tensor in batch.items():
+        forward = forward_A if key.endswith("_A") else forward_B
+        if key.startswith("image"):
+            result[key] = _affine_warp(tensor, forward, mode='bilinear')
+        else:
+            result[key] = _affine_warp(tensor, forward, mode='nearest')
+
+    return result
 
 
 def get_loss_function(similarity_type, sigma=5, mind_radius=2, mind_dilation=2):
@@ -140,15 +146,15 @@ def _resolve_model_weights(model_weights):
     return weights_path
 
 
-def finetune_multi(config, data_loader, val_data_loaders_dict, mode):
+def finetune_multi(config, data_loader, val_data_loaders_dict, data_fields):
     """
-    Unified finetuning loop for both image and segmentation modes.
+    Unified finetuning loop.
 
     Args:
         config: Full configuration dict with 'experiment' and 'training' sections.
         data_loader: Training DataLoader with weighted sampling.
         val_data_loaders_dict: Dict mapping dataset name to validation DataLoader.
-        mode: 'image' or 'segmentation'.
+        data_fields: Frozenset of optional data fields (e.g. {"segmentation", "mask"}).
     """
     train_config = config['training']
     exp_config = config['experiment']
@@ -163,6 +169,7 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, mode):
     lmbda = train_config.get('lambda', 1.5)
     dice_loss_weight = train_config.get('dice_loss_weight', 0.0)
     loss_function_masking = train_config.get('loss_function_masking', False)
+    roi_masking = train_config.get('roi_masking', False)
 
     similarity_type = train_config.get('similarity', 'lncc')
     loss_fn = get_loss_function(
@@ -172,23 +179,8 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, mode):
         mind_dilation=train_config.get('mind_dilation', 2),
     )
 
-    is_segmentation = (mode == 'segmentation')
-
-    if mode == 'image' and loss_function_masking:
-        raise ValueError(
-            "loss_function_masking requires segmentation datasets. "
-            "Use dataset type 'unpaired_with_seg' or 'paired_with_seg'."
-        )
-    if mode == 'image' and dice_loss_weight > 0.0:
-        raise ValueError(
-            "dice_loss_weight requires segmentation datasets. "
-            "Set dice_loss_weight to 0.0 for image datasets."
-        )
-    if loss_function_masking and dice_loss_weight > 0.0:
-        raise ValueError(
-            "loss_function_masking and dice_loss_weight are mutually exclusive in finetuning. "
-            "Set dice_loss_weight to 0.0 when using loss_function_masking."
-        )
+    has_segmentation = "segmentation" in data_fields
+    has_mask = "mask" in data_fields
 
     net = unigradicon.make_network(
         input_shape,
@@ -241,36 +233,36 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, mode):
         flush_secs=30,
     )
 
-    logger.info(f"Starting training ({mode} mode)...")
+    logger.info(f"Starting training...")
+    logger.info(f"Data fields: {data_fields or 'images only'}")
     logger.info(f"Training: epochs={epochs}, lr={learning_rate}, gpus={device_ids}")
     logger.info(f"Loss: similarity={similarity_type}, lambda={lmbda}, "
-                f"dice_weight={dice_loss_weight}, masking={loss_function_masking}")
+                f"dice_weight={dice_loss_weight}, masking={loss_function_masking}, roi_masking={roi_masking}")
 
     iteration = 0
 
     for epoch in tqdm(range(epochs), desc="Epochs"):
         for batch in data_loader:
-            if is_segmentation:
-                moving_image, fixed_image, moving_seg, fixed_seg = batch
-                moving_seg, fixed_seg = moving_seg.to(device), fixed_seg.to(device)
-            else:
-                moving_image, fixed_image = batch
-                moving_seg, fixed_seg = None, None
-
-            moving_image, fixed_image = moving_image.to(device), fixed_image.to(device)
+            batch = {k: v.to(device) for k, v in batch.items()}
 
             with torch.no_grad():
-                moving_image, fixed_image, moving_seg, fixed_seg = augment(
-                    moving_image, fixed_image, moving_seg, fixed_seg
-                )
+                batch = augment(batch)
+
+            if roi_masking:
+                batch["image_A"] = batch["image_A"] * (batch["mask_A"] > 0).float()
+                batch["image_B"] = batch["image_B"] * (batch["mask_B"] > 0).float()
 
             optimizer.zero_grad()
 
             forward_kwargs = {}
-            if is_segmentation:
-                forward_kwargs = {'mask_A': moving_seg, 'mask_B': fixed_seg}
+            if dice_loss_weight > 0.0 and has_segmentation:
+                forward_kwargs['segmentation_A'] = batch['segmentation_A']
+                forward_kwargs['segmentation_B'] = batch['segmentation_B']
+            if loss_function_masking and has_mask:
+                forward_kwargs['mask_A'] = batch['mask_A']
+                forward_kwargs['mask_B'] = batch['mask_B']
 
-            loss_object = net_par(moving_image, fixed_image, **forward_kwargs)
+            loss_object = net_par(batch['image_A'], batch['image_B'], **forward_kwargs)
             loss = torch.mean(loss_object.all_loss)
             loss.backward()
             optimizer.step()
@@ -301,22 +293,17 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, mode):
                 for dataset_name, val_loader in val_data_loaders_dict.items():
                     try:
                         val_batch = next(iter(val_loader))
-                        if is_segmentation:
-                            val_moving, val_fixed, val_moving_seg, val_fixed_seg = val_batch
-                            val_moving_seg = val_moving_seg.to(device)
-                            val_fixed_seg = val_fixed_seg.to(device)
-                        else:
-                            val_moving, val_fixed = val_batch
-                            val_moving_seg, val_fixed_seg = None, None
-
-                        val_moving = val_moving.to(device)
-                        val_fixed = val_fixed.to(device)
+                        val_batch = {k: v.to(device) for k, v in val_batch.items()}
 
                         forward_kwargs = {}
-                        if is_segmentation:
-                            forward_kwargs = {'mask_A': val_moving_seg, 'mask_B': val_fixed_seg}
+                        if dice_loss_weight > 0.0 and has_segmentation:
+                            forward_kwargs['segmentation_A'] = val_batch['segmentation_A']
+                            forward_kwargs['segmentation_B'] = val_batch['segmentation_B']
+                        if loss_function_masking and has_mask:
+                            forward_kwargs['mask_A'] = val_batch['mask_A']
+                            forward_kwargs['mask_B'] = val_batch['mask_B']
 
-                        val_loss = net(val_moving, val_fixed, **forward_kwargs)
+                        val_loss = net(val_batch['image_A'], val_batch['image_B'], **forward_kwargs)
 
                         for k, v in loss_to_dict(val_loss).items():
                             writer.add_scalar(f"val/{dataset_name}/{k}", v, iteration)
@@ -324,12 +311,12 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, mode):
                             writer,
                             dataset_name,
                             iteration,
-                            val_moving,
-                            val_fixed,
+                            val_batch['image_A'],
+                            val_batch['image_B'],
                             net.warped_image_A,
                         )
 
-                        if is_segmentation:
+                        if has_segmentation:
                             warped_seg_for_viz = None
                             if dice_loss_weight > 0.0 and hasattr(net, "warped_seg_A"):
                                 warped_seg_for_viz = net.warped_seg_A
@@ -337,11 +324,11 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, mode):
                                 writer,
                                 dataset_name,
                                 iteration,
-                                val_moving_seg,
-                                val_fixed_seg,
+                                val_batch['segmentation_A'],
+                                val_batch['segmentation_B'],
                                 warped_seg_for_viz,
-                                moving_image=val_moving,
-                                fixed_image=val_fixed,
+                                moving_image=val_batch['image_A'],
+                                fixed_image=val_batch['image_B'],
                                 warped_image=net.warped_image_A,
                             )
 
@@ -384,15 +371,15 @@ def main(argv=None):
     os.makedirs("results", exist_ok=True)
     footsteps.initialize(run_name=exp_config['name'])
 
-    train_loader, val_loaders, config, mode = create_data_loaders(args.config, config=config)
+    train_loader, val_loaders, config, data_fields = create_data_loaders(args.config, config=config)
 
-    logger.info(f"Experiment: {exp_config['name']} | Mode: {mode} | Datasets: {len(config['datasets'])}")
+    logger.info(f"Experiment: {exp_config['name']} | Data fields: {data_fields or 'images only'} | Datasets: {len(config['datasets'])}")
 
     finetune_multi(
         config=config,
         data_loader=train_loader,
         val_data_loaders_dict=val_loaders,
-        mode=mode,
+        data_fields=data_fields,
     )
 
     logger.info("=" * 40 + " FINETUNING COMPLETED " + "=" * 40)

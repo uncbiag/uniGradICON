@@ -18,7 +18,7 @@ training:
 
 datasets:
   - name: "example_seg_dataset"
-    type: "unpaired_with_seg"
+    type: "unpaired"
     json_file: "example_seg.json"
     weight: 1.0
     is_ct: true

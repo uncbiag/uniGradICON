@@ -17,8 +17,8 @@ training:
 
 datasets:
   - name: "oasis_brain"
-    type: "unpaired_with_seg"
+    type: "unpaired"
     json_file: "l2r_oasis.json"
     weight: 1.0
     is_ct: false
-    quantile_range: [0.01, 0.99]
+    quantile_range: [0.0, 0.99]

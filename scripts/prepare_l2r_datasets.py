@@ -55,9 +55,9 @@ def generate_oasis_json(data_dir, output_dir):
 
 
 def generate_lungct_json(data_dir, output_dir):
-    """Generate JSON for LungCT (paired_with_seg).
+    """Generate JSON for LungCT (paired).
 
-    Each subject has two timepoints (_0000, _0001). Uses masksTr for lung masks.
+    Each subject has two timepoints (_0000, _0001). Uses masksTr for binary lung masks.
     """
     images_dir = os.path.join(data_dir, "LungCT", "imagesTr")
     masks_dir = os.path.join(data_dir, "LungCT", "masksTr")
@@ -80,7 +80,7 @@ def generate_lungct_json(data_dir, output_dir):
         if os.path.isdir(masks_dir):
             seg_path = _find_seg(image_path, masks_dir)
             if seg_path:
-                entry["segmentation"] = _rel_path(seg_path, output_dir)
+                entry["mask"] = _rel_path(seg_path, output_dir)
         data.append(entry)
 
     return {"data": data} if len(data) >= 2 else None
@@ -171,8 +171,14 @@ def main():
             json.dump(result, f, indent=2)
 
         has_seg = any("segmentation" in entry for entry in result["data"])
-        seg_info = " (with segmentations)" if has_seg else ""
-        print(f"  {dataset_name}: {len(result['data'])} images{seg_info} -> {json_name}")
+        has_mask = any("mask" in entry for entry in result["data"])
+        extras = []
+        if has_seg:
+            extras.append("segmentations")
+        if has_mask:
+            extras.append("masks")
+        extra_info = f" (with {', '.join(extras)})" if extras else ""
+        print(f"  {dataset_name}: {len(result['data'])} images{extra_info} -> {json_name}")
         generated.append(json_name)
 
     if not generated:

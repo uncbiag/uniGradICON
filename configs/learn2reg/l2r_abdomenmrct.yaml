@@ -17,6 +17,6 @@ training:
 
 datasets:
   - name: "abdomen_mrct"
-    type: "unpaired_with_seg"
+    type: "unpaired"
     json_file: "l2r_abdomenmrct.json"
     weight: 1.0

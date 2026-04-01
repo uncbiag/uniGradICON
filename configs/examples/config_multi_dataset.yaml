@@ -21,7 +21,7 @@ datasets:
     json_file: "example_unpaired.json"
     weight: 0.6  # 60% of batches will come from this dataset
     is_ct: false
-    quantile_range: [0.01, 0.99]
+    quantile_range: [0.0, 0.99]
 
   # Second dataset: CT example (using same json for demo — replace with your actual CT dataset JSON)
   - name: "dataset_ct"

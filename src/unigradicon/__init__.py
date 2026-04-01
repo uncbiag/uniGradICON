@@ -31,7 +31,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         self.apply_intensity_conservation_loss = apply_intensity_conservation_loss
         self.loss_function_masking = loss_function_masking
 
-    def forward(self, image_A, image_B, label_A=None, label_B=None, mask_A=None, mask_B=None):
+    def forward(self, image_A, image_B, label_A=None, label_B=None, mask_A=None, mask_B=None, segmentation_A=None, segmentation_B=None):
         assert self.identity_map.shape[2:] == image_A.shape[2:]
         assert self.identity_map.shape[2:] == image_B.shape[2:]
         if self.use_label:
@@ -39,24 +39,28 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             label_B = image_B if label_B is None else label_B
             assert self.identity_map.shape[2:] == label_A.shape[2:]
             assert self.identity_map.shape[2:] == label_B.shape[2:]
-            
+
+        if self.loss_function_masking:
+            assert mask_A is not None and mask_B is not None, \
+                "mask_A and mask_B must be provided when loss_function_masking=True"
         if self.dice_loss_weight > 0.0:
-            assert mask_A is not None and mask_B is not None, "mask_A and mask_B must be provided when dice_loss_weight>0"
-            unique_A = torch.unique(mask_A.long())
-            unique_B = torch.unique(mask_B.long())
-            common_labels = unique_A[torch.isin(unique_A, unique_B)]
-            common_labels = common_labels[common_labels != 0]  # exclude background
-            num_classes = len(common_labels)
+            assert segmentation_A is not None and segmentation_B is not None, \
+                "segmentation_A and segmentation_B must be provided when dice_loss_weight>0"
+            unique_A = torch.unique(segmentation_A.long())
+            unique_B = torch.unique(segmentation_B.long())
+            common_classes = unique_A[torch.isin(unique_A, unique_B)]
+            common_classes = common_classes[common_classes != 0]  # exclude background
+            num_classes = len(common_classes)
 
             if num_classes == 0:
-                mask_A_one_hot = mask_B_one_hot = None
+                seg_A_one_hot = seg_B_one_hot = None
             else:
-                max_label = int(torch.max(unique_A.max(), unique_B.max()).item())
-                remap = torch.zeros(max_label + 1, dtype=torch.long, device=mask_A.device)
-                remap[common_labels] = torch.arange(1, num_classes + 1, device=mask_A.device)
+                max_class_id = int(torch.max(unique_A.max(), unique_B.max()).item())
+                remap = torch.zeros(max_class_id + 1, dtype=torch.long, device=segmentation_A.device)
+                remap[common_classes] = torch.arange(1, num_classes + 1, device=segmentation_A.device)
 
-                mask_A_one_hot = F.one_hot(remap[mask_A.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
-                mask_B_one_hot = F.one_hot(remap[mask_B.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
+                seg_A_one_hot = F.one_hot(remap[segmentation_A.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
+                seg_B_one_hot = F.one_hot(remap[segmentation_B.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
 
         # Tag used elsewhere for optimization.
         # Must be set at beginning of forward b/c not preserved by .cuda() etc
@@ -108,21 +112,21 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             zero_boundary=True
         )
 
-        if self.dice_loss_weight > 0.0 and mask_A_one_hot is not None:
+        if self.dice_loss_weight > 0.0 and seg_A_one_hot is not None:
             self.warped_seg_A = compute_warped_image_multiNC(
-                torch.cat([mask_A_one_hot, inbounds_tag], dim=1) if inbounds_tag is not None else mask_A_one_hot.float(),
+                torch.cat([seg_A_one_hot, inbounds_tag], dim=1) if inbounds_tag is not None else seg_A_one_hot.float(),
                 self.phi_AB_vectorfield,
                 self.spacing,
                 1,
             )
 
             self.warped_seg_B = compute_warped_image_multiNC(
-                torch.cat([mask_B_one_hot, inbounds_tag], dim=1) if inbounds_tag is not None else mask_B_one_hot.float(),
+                torch.cat([seg_B_one_hot, inbounds_tag], dim=1) if inbounds_tag is not None else seg_B_one_hot.float(),
                 self.phi_BA_vectorfield,
                 self.spacing,
                 1,
             )
-            dice_loss = self.dice_loss(self.warped_seg_A, mask_B_one_hot) + self.dice_loss(self.warped_seg_B, mask_A_one_hot)
+            dice_loss = self.dice_loss(self.warped_seg_A, seg_B_one_hot) + self.dice_loss(self.warped_seg_B, seg_A_one_hot)
         else:
             dice_loss = 0.0
             
@@ -410,8 +414,8 @@ def preprocess(image, modality="ct", segmentation=None, ct_window=None, quantile
         segmentation: Optional ITK segmentation to mask the image (ROI masking).
         ct_window: Optional (min, max) HU window for CT. Default: (-1000, 1000).
         quantile_range: Optional (lower, upper) quantile range for MRI normalization.
-            Default (None): uses actual image min and 99th percentile.
-            Set to (0.01, 0.99) to match the default finetuning preprocessing.
+            Default (None): uses actual image min and 99th percentile, matching
+            the finetuning default of (0.0, 0.99).
     """
     if modality == "ct":
         if ct_window is None:
@@ -488,8 +492,7 @@ def main():
                                  "Use to match finetuning preprocessing if you used a custom ct_window.")
     parser.add_argument("--quantile_range", required=False, nargs=2, type=float, default=None, metavar=("LOWER", "UPPER"),
                             help="Custom quantile range [lower upper] for MRI intensity normalization. "
-                                 "Default: actual image min and 99th percentile. "
-                                 "Set to 0.01 0.99 to match the default finetuning preprocessing.")
+                                 "Default: actual image min and 99th percentile.")
 
     args = parser.parse_args()
     
@@ -524,8 +527,9 @@ def main():
     else:
         moving_segmentation = None
         
-    use_loss_masks = args.loss_function_masking or args.dice_loss_weight > 0.0
-    if use_loss_masks and (fixed_segmentation is None or moving_segmentation is None):
+    needs_masks = args.loss_function_masking
+    needs_segmentations = args.dice_loss_weight > 0.0
+    if (needs_masks or needs_segmentations) and (fixed_segmentation is None or moving_segmentation is None):
         raise ValueError("Loss masking/Dice requires both fixed and moving segmentations.")
 
     if args.io_iterations == "None":
@@ -552,20 +556,22 @@ def main():
         quantile_range=q_range,
     )
 
-    if use_loss_masks:
+    if needs_masks or needs_segmentations:
         phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(
             net,
             masked_moving,
             masked_fixed,
-            moving_segmentation,
-            fixed_segmentation,
-            finetune_steps=io_iterations)
-
+            mask_A=moving_segmentation if needs_masks else None,
+            mask_B=fixed_segmentation if needs_masks else None,
+            finetune_steps=io_iterations,
+            segmentation_A=moving_segmentation if needs_segmentations else None,
+            segmentation_B=fixed_segmentation if needs_segmentations else None,
+        )
     else:
         phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair(
             net,
-            masked_moving, 
-            masked_fixed, 
+            masked_moving,
+            masked_fixed,
             finetune_steps=io_iterations)
 
     itk.transformwrite([phi_AB], args.transform_out)

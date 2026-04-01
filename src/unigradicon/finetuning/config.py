@@ -4,7 +4,7 @@ import yaml
 import json
 import os
 from torch.utils.data import ConcatDataset, WeightedRandomSampler, DataLoader
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, FrozenSet
 from . import dataset
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ REQUIRED_DATASET_KEYS = {'name', 'type', 'json_file'}
 VALID_TRAINING_KEYS = {
     'batch_size', 'gpus', 'epochs', 'eval_period', 'save_period', 'learning_rate',
     'input_shape', 'seed', 'similarity', 'lambda', 'dice_loss_weight',
-    'loss_function_masking', 'lncc_sigma', 'mind_radius', 'mind_dilation',
+    'loss_function_masking', 'roi_masking', 'lncc_sigma', 'mind_radius', 'mind_dilation',
     'samples_per_epoch', 'num_workers',
 }
 VALID_DATASET_KEYS = {
@@ -82,54 +82,103 @@ def load_json_dataset_file(json_path: str) -> List[Dict[str, str]]:
             )
         item["image"] = resolved_image
 
-        if "segmentation" in item:
-            seg_path = item["segmentation"]
-            resolved_seg = seg_path if os.path.isabs(seg_path) else os.path.join(base_dir, seg_path)
-            if not os.path.exists(resolved_seg):
-                raise FileNotFoundError(
-                    f"Segmentation file not found for entry {idx} in {json_path}: "
-                    f"{seg_path} (resolved to {resolved_seg})"
-                )
-            item["segmentation"] = resolved_seg
+        for field in ("segmentation", "mask"):
+            if field in item:
+                path = item[field]
+                resolved = path if os.path.isabs(path) else os.path.join(base_dir, path)
+                if not os.path.exists(resolved):
+                    raise FileNotFoundError(
+                        f"{field.capitalize()} file not found for entry {idx} in {json_path}: "
+                        f"{path} (resolved to {resolved})"
+                    )
+                item[field] = resolved
 
     return data
 
 
-def validate_dataset_consistency(configs: List[Dict[str, Any]]) -> str:
+def determine_data_fields(dataset_configs: List[Dict[str, Any]], config_dir: str) -> FrozenSet[str]:
+    """Determine which optional data fields (segmentation, mask) are available across all datasets.
+
+    Peeks at the first entry of each dataset's JSON file to detect fields.
+    Validates that all datasets provide the same fields.
+    Returns a frozenset of field names, e.g. frozenset({"segmentation", "mask"}).
     """
-    Validate that all datasets are consistent (either all with segmentation or all without).
-    Returns: 'image' for datasets without segmentation, 'segmentation' for datasets with segmentation
-    Raises: ValueError if datasets are mixed
-    """
-    seg_types = {'unpaired_with_seg', 'paired_with_seg'}
-    image_types = {'unpaired', 'paired'}
+    optional_fields = {"segmentation", "mask"}
+    fields_per_dataset = []
 
-    dataset_types = [ds['type'] for ds in configs]
+    for ds_config in dataset_configs:
+        json_file = ds_config['json_file']
+        if config_dir and not os.path.isabs(json_file):
+            json_file = os.path.join(config_dir, json_file)
 
-    has_seg = any(dt in seg_types for dt in dataset_types)
-    has_image = any(dt in image_types for dt in dataset_types)
+        with open(json_file, 'r') as f:
+            content = json.load(f)
 
-    if has_seg and has_image:
+        if "data" not in content or not content["data"]:
+            raise ValueError(f"JSON file {json_file} has no data entries")
+
+        first_entry = content["data"][0]
+        ds_fields = frozenset(k for k in optional_fields if k in first_entry)
+        fields_per_dataset.append((ds_config['name'], ds_fields))
+
+    if not fields_per_dataset:
+        return frozenset()
+
+    reference_name, reference_fields = fields_per_dataset[0]
+    for ds_name, ds_fields in fields_per_dataset[1:]:
+        if ds_fields != reference_fields:
+            raise ValueError(
+                f"All datasets must provide the same data fields. "
+                f"Dataset '{reference_name}' has {reference_fields or 'none'}, "
+                f"but '{ds_name}' has {ds_fields or 'none'}."
+            )
+
+    return reference_fields
+
+
+def validate_training_data_compatibility(train_config: Dict[str, Any], data_fields: FrozenSet[str]):
+    """Cross-validate training config requirements against available data fields."""
+    dice_loss_weight = train_config.get('dice_loss_weight', 0.0)
+    loss_function_masking = train_config.get('loss_function_masking', False)
+    roi_masking = train_config.get('roi_masking', False)
+
+    if dice_loss_weight > 0.0 and "segmentation" not in data_fields:
         raise ValueError(
-            "Cannot mix dataset types with and without segmentations in the same config. "
-            f"Found types: {dataset_types}. "
-            "Use either all image types (unpaired, paired) or all segmentation types "
-            "(unpaired_with_seg, paired_with_seg)."
+            "dice_loss_weight requires 'segmentation' field in JSON data entries. "
+            "Add segmentation paths to your dataset JSON files."
+        )
+    if loss_function_masking and "mask" not in data_fields:
+        raise ValueError(
+            "loss_function_masking requires 'mask' field in JSON data entries. "
+            "Add mask paths to your dataset JSON files."
+        )
+    if roi_masking and "mask" not in data_fields:
+        raise ValueError(
+            "roi_masking requires 'mask' field in JSON data entries. "
+            "Add mask paths to your dataset JSON files."
         )
 
-    if has_seg:
-        return 'segmentation'
-    else:
-        return 'image'
+    if "segmentation" in data_fields and dice_loss_weight == 0.0:
+        logger.warning(
+            "Segmentation data is present but dice_loss_weight is 0. "
+            "Segmentation data will be loaded but unused."
+        )
+    if "mask" in data_fields and not loss_function_masking and not roi_masking:
+        logger.warning(
+            "Mask data is present but neither loss_function_masking nor roi_masking is enabled. "
+            "Mask data will be loaded but unused."
+        )
 
 
 def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tuple[int, ...], config_dir: str = "") -> dataset.Dataset:
-    """
-    Instantiate a dataset based on config using existing classes:
-    - Dataset (unpaired)
-    - PairedDataset
-    - ImageSegmentationDataset (unpaired_with_seg)
-    - PairedImageSegmentationDataset (paired_with_seg)
+    """Instantiate a dataset based on config.
+
+    Dataset type determines pairing strategy:
+    - ``unpaired``: random pairing from all images
+    - ``paired``: subject-based pairing (requires ``subject_id`` in JSON)
+
+    What data is loaded (images, segmentations, masks) is determined by the
+    fields present in the JSON file, not by the dataset type.
     """
     dataset_type = dataset_config['type']
 
@@ -145,26 +194,26 @@ def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tupl
     }
 
     common_params['ct_window'] = tuple(dataset_config.get('ct_window', [-1000, 1000]))
-    common_params['quantile_range'] = tuple(dataset_config.get('quantile_range', [0.01, 0.99]))
+    common_params['quantile_range'] = tuple(dataset_config.get('quantile_range', [0.0, 0.99]))
 
     json_file = dataset_config['json_file']
     if config_dir and not os.path.isabs(json_file):
         json_file = os.path.join(config_dir, json_file)
     common_params['data'] = load_json_dataset_file(json_file)
 
-    if dataset_type == 'unpaired':
+    if dataset_type in ('unpaired', 'unpaired_with_seg'):
         return dataset.Dataset(**common_params)
-    elif dataset_type == 'paired':
+    elif dataset_type in ('paired', 'paired_with_seg'):
         return dataset.PairedDataset(**common_params)
-    elif dataset_type == 'unpaired_with_seg':
-        return dataset.ImageSegmentationDataset(**common_params)
-    elif dataset_type == 'paired_with_seg':
-        return dataset.PairedImageSegmentationDataset(**common_params)
     else:
-        raise ValueError(f"Unknown dataset type: {dataset_type}. Must be one of: unpaired, paired, unpaired_with_seg, paired_with_seg")
+        raise ValueError(
+            f"Unknown dataset type: {dataset_type}. "
+            f"Must be 'unpaired' or 'paired'. Data fields (segmentation, mask) "
+            f"are auto-detected from JSON entries."
+        )
 
 
-def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tuple[DataLoader, Dict[str, DataLoader], Dict[str, Any], str]:
+def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tuple[DataLoader, Dict[str, DataLoader], Dict[str, Any], FrozenSet[str]]:
     """
     Create training and validation dataloaders from YAML config.
 
@@ -176,7 +225,7 @@ def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tupl
         train_loader: DataLoader for training with weighted sampling
         val_loaders: Dict mapping dataset name to its validation DataLoader
         config: The loaded configuration dictionary
-        mode: 'image' or 'segmentation' indicating dataset type
+        data_fields: Frozenset of optional data fields available (e.g. {"segmentation", "mask"})
     """
     if config is None:
         config = load_config(config_path)
@@ -188,7 +237,7 @@ def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tupl
         'batch_size': 4,
         'gpus': [0],
         'epochs': 500,
-        'eval_period': 15,
+        'eval_period': 10,
         'save_period': 50,
         'input_shape': [175, 175, 175],
     }
@@ -196,8 +245,9 @@ def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tupl
     for k, v in training_defaults.items():
         train_config.setdefault(k, v)
 
-    mode = validate_dataset_consistency(config['datasets'])
-    logger.info(f"Dataset mode: {mode}")
+    data_fields = determine_data_fields(config['datasets'], config_dir)
+    validate_training_data_compatibility(train_config, data_fields)
+    logger.info(f"Data fields: {data_fields or 'images only'}")
 
     input_shape = train_config['input_shape']
     batch_size = train_config['batch_size']
@@ -270,4 +320,4 @@ def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tupl
     logger.info(f"Total samples: {total_samples} | Samples/epoch: {samples_per_epoch} | "
                 f"Batch: {batch_size}x{num_gpus} GPUs | Iters/epoch: {iterations_per_epoch}")
 
-    return train_loader, val_loaders, config, mode
+    return train_loader, val_loaders, config, data_fields

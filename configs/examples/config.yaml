@@ -20,7 +20,7 @@ datasets:
     json_file: "example_unpaired.json"
     weight: 1.0 # Relative sampling weight
     is_ct: false
-    quantile_range: [0.01, 0.99]
+    quantile_range: [0.0, 0.99]
 
   # Example of adding a second dataset (weights are relative):
   # - name: "second_dataset"

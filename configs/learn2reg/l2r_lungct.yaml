@@ -13,11 +13,11 @@ training:
   similarity: "lncc"
   lambda: 1.5
   lncc_sigma: 5
-  dice_loss_weight: 0.5
+  loss_function_masking: true
 
 datasets:
   - name: "lungct"
-    type: "paired_with_seg"
+    type: "paired"
     json_file: "l2r_lungct.json"
     weight: 1.0
     is_ct: true

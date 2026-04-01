@@ -91,10 +91,14 @@ def _build_pair_lookup(data, store, keys):
 
 
 class Dataset(TorchDataset):
-    """Base dataset for medical image registration.
+    """Dataset for medical image registration.
 
     Loads and preprocesses 3D medical images for registration training.
-    Images are stored in memory after preprocessing for fast access during training.
+    Optionally loads segmentation maps and/or binary masks based on the
+    fields present in the JSON data entries:
+
+    - ``segmentation``: integer label maps for Dice loss computation
+    - ``mask``: binary ROI masks for loss function masking and/or image cropping
 
     Supports two image readers via ``read_type``:
     - ``"itk"`` (default): reads NIfTI, NRRD, and other ITK-supported formats.
@@ -102,8 +106,6 @@ class Dataset(TorchDataset):
 
     Note: __getitem__ returns random image pairs regardless of the index argument.
     This is by design for registration training where random pairing is standard.
-    The DataLoader's sampler controls how often each dataset is sampled in
-    multi-dataset training, not which specific pairs are returned.
     """
 
     def __init__(self,
@@ -116,7 +118,7 @@ class Dataset(TorchDataset):
                  shuffle: bool = False,
                  is_ct: bool = False,
                  ct_window: Tuple[float, float] = (-1000, 1000),
-                 quantile_range: Tuple[float, float] = (0.01, 0.99),
+                 quantile_range: Tuple[float, float] = (0.0, 0.99),
                  use_cache: bool = True):
 
         self.read_type = read_type
@@ -128,6 +130,11 @@ class Dataset(TorchDataset):
         self.quantile_range = quantile_range
         self.use_cache = use_cache
 
+        # Detect optional data fields from JSON entries
+        self.has_segmentation = any('segmentation' in item for item in data)
+        self.has_mask = any('mask' in item for item in data)
+
+        # Build per-image modality map
         self._modality_map = {}
         for item in data:
             mod = item.get('modality')
@@ -156,6 +163,17 @@ class Dataset(TorchDataset):
         else:
             raise ValueError(f"Invalid read_type: {read_type}. Must be 'itk' or 'dicom'")
 
+        # Build field maps for segmentation and mask paths
+        self._segmentation_map = {}
+        self._mask_map = {}
+        if self.has_segmentation:
+            self._segmentation_map = {item['image']: item['segmentation']
+                                      for item in data if 'segmentation' in item}
+        if self.has_mask:
+            self._mask_map = {item['image']: item['mask']
+                              for item in data if 'mask' in item}
+
+        # Cache setup
         self._cache_path = None
         if use_cache:
             if cache_dir:
@@ -163,6 +181,7 @@ class Dataset(TorchDataset):
             else:
                 self._cache_path = os.path.join(footsteps.output_dir, self.name + "_cached_dataset.trch")
 
+        # Load images
         if self._cache_path and os.path.exists(self._cache_path):
             loaded_cache = torch.load(self._cache_path, map_location="cpu", weights_only=False)
             _validate_cache(loaded_cache, self.name, maximum_images, self.read_type,
@@ -211,6 +230,63 @@ class Dataset(TorchDataset):
         if len(self.keys) < 2:
             raise ValueError(f"Dataset '{self.name}': need at least 2 images for registration pairs, got {len(self.keys)}")
         logger.info(f"Dataset '{self.name}': {len(self.keys)} images loaded")
+
+        # Load segmentations and masks
+        if self.has_segmentation:
+            self._load_label_maps("segmentation", self._segmentation_map)
+        if self.has_mask:
+            self._load_label_maps("mask", self._mask_map)
+
+    def _load_label_maps(self, field_name: str, path_map: Dict[str, str]):
+        """Load and cache segmentation or mask label maps for all images."""
+        cache_path = None
+        if self._cache_path:
+            cache_path = self._cache_path.replace("_cached_dataset.trch", f"_cached_{field_name}s.trch")
+
+        if cache_path and os.path.exists(cache_path):
+            cache = torch.load(cache_path, map_location="cpu", weights_only=False)
+            cached_shape = cache.get("input_shape")
+            cached_data = cache.get("data", {})
+            if cached_shape == list(self.input_shape) and all(path in cached_data for path in self.keys):
+                for path in self.keys:
+                    self.store[path][field_name] = cached_data[path]
+                return
+
+        failed_keys = []
+        for path in tqdm(self.keys, desc=f"Processing {field_name}s for {self.name}"):
+            label_path = path_map.get(path)
+            if label_path is None:
+                logger.warning(f"No {field_name} for {path}")
+                failed_keys.append(path)
+                continue
+            try:
+                self.store[path][field_name] = self._preprocess_label_map(label_path)
+            except Exception as e:
+                logger.warning(f"Failed to process {field_name} for {path}: {e}")
+                failed_keys.append(path)
+
+        for path in failed_keys:
+            self.keys.remove(path)
+            del self.store[path]
+        if failed_keys:
+            logger.warning(f"Removed {len(failed_keys)} images with failed {field_name}s")
+
+        if cache_path:
+            os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
+            torch.save(
+                {
+                    "input_shape": list(self.input_shape),
+                    "data": {path: self.store[path][field_name] for path in self.keys},
+                },
+                cache_path,
+            )
+
+    def _preprocess_label_map(self, path: str) -> torch.Tensor:
+        """Read and resize a label map (segmentation or mask) with nearest interpolation."""
+        label = self.read_image_itk(path)
+        label = label[None, None].float()
+        label = torch.nn.functional.interpolate(label, self.input_shape, mode="nearest")
+        return label[0]
 
     def get_image_paths(self) -> List[str]:
         return [item['image'] for item in self.data]
@@ -319,9 +395,19 @@ class Dataset(TorchDataset):
     def get_key_pair(self) -> Tuple[str, str]:
         return tuple(random.sample(self.keys, 2))
 
-    def get_pair(self):
-        pair = self.get_key_pair()
-        return self.get_image(pair[0]), self.get_image(pair[1])
+    def get_pair(self) -> Dict[str, torch.Tensor]:
+        key_a, key_b = self.get_key_pair()
+        result = {
+            "image_A": self.get_image(key_a),
+            "image_B": self.get_image(key_b),
+        }
+        if self.has_segmentation:
+            result["segmentation_A"] = self._unpack(self.store[key_a]["segmentation"])
+            result["segmentation_B"] = self._unpack(self.store[key_b]["segmentation"])
+        if self.has_mask:
+            result["mask_A"] = self._unpack(self.store[key_a]["mask"])
+            result["mask_B"] = self._unpack(self.store[key_b]["mask"])
+        return result
 
     def __len__(self):
         return len(self.keys)
@@ -346,104 +432,6 @@ class PairedDataset(Dataset):
                 f"Ensure data entries have 'subject_id' and at least 2 images per subject."
             )
         logger.info(f"Dataset '{self.name}': {len(self.keys)} paired images")
-
-    def get_key_pair(self):
-        key1 = random.choice(self.keys)
-        return (key1, random.choice(self.pair_candidates[key1]))
-
-
-class ImageSegmentationDataset(Dataset):
-    """Unpaired dataset with segmentation masks for registration training.
-
-    Accepts all parameters from Dataset. Data entries must include a
-    ``segmentation`` path alongside each ``image``.
-    """
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-        self.segmentation_map = {item['image']: item['segmentation']
-                                 for item in self.data if item['image'] in self.store}
-
-        seg_cache_path = None
-        if self._cache_path:
-            seg_cache_path = self._cache_path.replace("_cached_dataset.trch", "_cached_segmentations.trch")
-
-        if seg_cache_path and os.path.exists(seg_cache_path):
-            seg_cache = torch.load(seg_cache_path, map_location="cpu", weights_only=False)
-            cached_shape = seg_cache.get("input_shape")
-            cached_keys = seg_cache.get("data", {})
-            if cached_shape == list(self.input_shape) and all(path in cached_keys for path in self.keys):
-                for path in self.keys:
-                    self.store[path]["segmentation"] = cached_keys[path]
-            else:
-                self._process_and_cache_segmentations(seg_cache_path)
-        else:
-            self._process_and_cache_segmentations(seg_cache_path)
-
-    def _process_and_cache_segmentations(self, seg_cache_path: Optional[str]):
-        failed_keys = []
-        for path in tqdm(self.keys, desc=f"Processing segmentations for {self.name}"):
-            try:
-                self.store[path]["segmentation"] = self.preprocess_segmentation(path)
-            except Exception as e:
-                logger.warning(f"Failed to process segmentation for {path}: {e}")
-                failed_keys.append(path)
-        for path in failed_keys:
-            self.keys.remove(path)
-            del self.store[path]
-        if failed_keys:
-            logger.warning(f"Removed {len(failed_keys)} images with failed segmentations")
-
-        if seg_cache_path:
-            os.makedirs(os.path.dirname(os.path.abspath(seg_cache_path)), exist_ok=True)
-            torch.save(
-                {
-                    "input_shape": list(self.input_shape),
-                    "data": {path: self.store[path]["segmentation"] for path in self.keys},
-                },
-                seg_cache_path,
-            )
-
-    def get_segmentation_path(self, image_path: str) -> Optional[str]:
-        return self.segmentation_map.get(image_path)
-
-    def preprocess_segmentation(self, image_path: str) -> torch.Tensor:
-        seg_path = self.get_segmentation_path(image_path)
-        seg = self.read_image_itk(seg_path)
-        seg = seg[None, None].float()
-        seg = torch.nn.functional.interpolate(seg, self.input_shape, mode="nearest")
-        return seg[0]
-
-    def get_segmentation(self, key: str) -> torch.Tensor:
-        return self._unpack(self.store[key]["segmentation"])
-
-    def get_pair(self):
-        pair = self.get_key_pair()
-        return (
-            self.get_image(pair[0]),
-            self.get_image(pair[1]),
-            self.get_segmentation(pair[0]),
-            self.get_segmentation(pair[1]),
-        )
-
-
-class PairedImageSegmentationDataset(ImageSegmentationDataset):
-    """Paired dataset with segmentation masks for registration training.
-
-    Accepts all parameters from Dataset. Data entries must include ``subject_id``
-    and ``segmentation``, with at least 2 images per subject.
-    """
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.pair_candidates, self.keys = _build_pair_lookup(self.data, self.store, self.keys)
-        if not self.keys:
-            raise ValueError(
-                f"Dataset '{self.name}': no valid pairs found. "
-                f"Ensure data entries have 'subject_id' and at least 2 images per subject."
-            )
-        logger.info(f"Dataset '{self.name}': {len(self.keys)} paired segmentation images")
 
     def get_key_pair(self):
         key1 = random.choice(self.keys)
