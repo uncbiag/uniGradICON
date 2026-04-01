@@ -36,14 +36,15 @@ This section walks through finetuning uniGradICON on three public [Learn2Reg](ht
 | `l2r_oasis.yaml` | OASIS brain MRI | `unpaired_with_seg` | MRI | lncc | uniGradICON | 414 |
 | `l2r_lungct.yaml` | LungCT | `paired_with_seg` | CT | lncc | uniGradICON | 40 (20×2) |
 | `l2r_abdomenmrct.yaml` | AbdomenMRCT | `unpaired_with_seg` | CT + MR | lncc2 | multiGradICON | 105 (48 CT + 57 MR) |
-| `l2r_multi.yaml` | All three combined | mixed | MRI + CT + MR | lncc2 | multiGradICON | 559 |
+| `l2r_multi.yaml` | All three combined | mixed | MRI + CT | lncc2 | multiGradICON | 559 |
 
 Cross-modality datasets (AbdomenMRCT) use per-image `"modality"` fields in the JSON so each image is preprocessed according to its own modality (CT windowing vs MRI quantile normalization). `lncc2` (SquaredLNCC) is used as a modality-invariant similarity measure, and `multigradicon` provides pretrained weights for multimodal registration.
 
 ### 1. Install uniGradICON
 
 ```bash
-pip install -e .
+pip install unigradicon
+# or from source: pip install -e .
 ```
 
 ### 2. Download the datasets
