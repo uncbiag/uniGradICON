@@ -29,7 +29,7 @@ def _find_seg(image_path, seg_dir):
 
 
 def generate_oasis_json(data_dir, output_dir):
-    """Generate JSON for OASIS brain MRI (unpaired_with_seg).
+    """Generate JSON for OASIS brain MRI (unpaired, with segmentations).
 
     Uses imagesTr for images and labelsTr for 35-structure brain segmentations.
     """
@@ -87,7 +87,7 @@ def generate_lungct_json(data_dir, output_dir):
 
 
 def generate_abdomenmrct_json(data_dir, output_dir):
-    """Generate JSON for AbdomenMRCT cross-modality dataset (unpaired_with_seg).
+    """Generate JSON for AbdomenMRCT cross-modality dataset (unpaired, with segmentations).
 
     Includes all CT (_0000) and MR (_0001) images with per-image modality field.
     The dataset preprocesses each image according to its modality (CT windowing

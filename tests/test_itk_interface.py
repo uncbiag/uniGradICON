@@ -1,10 +1,8 @@
 import itk
 import numpy as np
 import unittest
-import numpy as np
 import torch
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
 
 
 import icon_registration.test_utils

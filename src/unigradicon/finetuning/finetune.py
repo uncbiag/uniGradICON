@@ -82,8 +82,11 @@ def augment(batch):
 
     result = {}
     for key, tensor in batch.items():
+        if not torch.is_tensor(tensor):
+            result[key] = tensor
+            continue
         forward = forward_A if key.endswith("_A") else forward_B
-        if key.startswith("image"):
+        if key.startswith("image") or key.startswith("label"):
             result[key] = _affine_warp(tensor, forward, mode='bilinear')
         else:
             result[key] = _affine_warp(tensor, forward, mode='nearest')
@@ -170,6 +173,7 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, data_fields):
     dice_loss_weight = train_config.get('dice_loss_weight', 0.0)
     loss_function_masking = train_config.get('loss_function_masking', False)
     roi_masking = train_config.get('roi_masking', False)
+    use_label = train_config.get('use_label', False)
 
     similarity_type = train_config.get('similarity', 'lncc')
     loss_fn = get_loss_function(
@@ -187,7 +191,7 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, data_fields):
         include_last_step=True,
         lmbda=lmbda,
         loss_fn=loss_fn,
-        use_label=False,
+        use_label=use_label,
         dice_loss_weight=dice_loss_weight,
         loss_function_masking=loss_function_masking,
     )
@@ -237,7 +241,8 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, data_fields):
     logger.info(f"Data fields: {data_fields or 'images only'}")
     logger.info(f"Training: epochs={epochs}, lr={learning_rate}, gpus={device_ids}")
     logger.info(f"Loss: similarity={similarity_type}, lambda={lmbda}, "
-                f"dice_weight={dice_loss_weight}, masking={loss_function_masking}, roi_masking={roi_masking}")
+                f"dice_weight={dice_loss_weight}, masking={loss_function_masking}, "
+                f"roi_masking={roi_masking}, use_label={use_label}")
 
     iteration = 0
 
@@ -255,6 +260,9 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, data_fields):
             optimizer.zero_grad()
 
             forward_kwargs = {}
+            if use_label and 'label_A' in batch:
+                forward_kwargs['label_A'] = batch['label_A']
+                forward_kwargs['label_B'] = batch['label_B']
             if dice_loss_weight > 0.0 and has_segmentation:
                 forward_kwargs['segmentation_A'] = batch['segmentation_A']
                 forward_kwargs['segmentation_B'] = batch['segmentation_B']
@@ -296,6 +304,9 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, data_fields):
                         val_batch = {k: v.to(device) for k, v in val_batch.items()}
 
                         forward_kwargs = {}
+                        if use_label and 'label_A' in val_batch:
+                            forward_kwargs['label_A'] = val_batch['label_A']
+                            forward_kwargs['label_B'] = val_batch['label_B']
                         if dice_loss_weight > 0.0 and has_segmentation:
                             forward_kwargs['segmentation_A'] = val_batch['segmentation_A']
                             forward_kwargs['segmentation_B'] = val_batch['segmentation_B']

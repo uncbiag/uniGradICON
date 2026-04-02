@@ -13,7 +13,6 @@ training:
   similarity: "lncc2"
   lambda: 1.5
   lncc_sigma: 5
-  dice_loss_weight: 0.5
 
 datasets:
   - name: "oasis_brain"

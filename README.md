@@ -103,9 +103,9 @@ To use custom network weights (e.g., after [finetuning](src/unigradicon/finetuni
 unigradicon-register --fixed=fixed.nii.gz --fixed_modality=mri --moving=moving.nii.gz --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped.nii.gz --network_weights /path/to/network_weights_final.trch
 ```
 
-To match custom preprocessing used during finetuning, use `--ct_window` (for CT) or `--quantile_range` (for MRI):
+If you customized preprocessing during finetuning, pass the same values at inference with `--ct_window` (for CT) or `--quantile_range` (for MRI):
 ```
-unigradicon-register --fixed=fixed.nii.gz --fixed_modality=mri --moving=moving.nii.gz --moving_modality=mri --transform_out=trans.hdf5 --quantile_range 0.01 0.99 --network_weights /path/to/network_weights_final.trch
+unigradicon-register --fixed=fixed.nii.gz --fixed_modality=mri --moving=moving.nii.gz --moving_modality=mri --transform_out=trans.hdf5 --quantile_range 0.0 0.99 --network_weights /path/to/network_weights_final.trch
 ```
 
 To finetune on your own data, see the [finetuning guide](./src/unigradicon/finetuning/README.md):

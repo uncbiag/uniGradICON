@@ -14,8 +14,8 @@ REQUIRED_DATASET_KEYS = {'name', 'type', 'json_file'}
 VALID_TRAINING_KEYS = {
     'batch_size', 'gpus', 'epochs', 'eval_period', 'save_period', 'learning_rate',
     'input_shape', 'seed', 'similarity', 'lambda', 'dice_loss_weight',
-    'loss_function_masking', 'roi_masking', 'lncc_sigma', 'mind_radius', 'mind_dilation',
-    'samples_per_epoch', 'num_workers',
+    'loss_function_masking', 'roi_masking', 'use_label', 'lncc_sigma', 'mind_radius',
+    'mind_dilation', 'samples_per_epoch', 'num_workers',
 }
 VALID_DATASET_KEYS = {
     'name', 'type', 'json_file', 'weight', 'maximum_images', 'use_cache',
@@ -99,7 +99,7 @@ def load_json_dataset_file(json_path: str) -> List[Dict[str, str]]:
 def determine_data_fields(dataset_configs: List[Dict[str, Any]], config_dir: str) -> FrozenSet[str]:
     """Determine which optional data fields (segmentation, mask) are available across all datasets.
 
-    Peeks at the first entry of each dataset's JSON file to detect fields.
+    Checks all entries in each dataset's JSON file to detect and validate fields.
     Validates that all datasets provide the same fields.
     Returns a frozenset of field names, e.g. frozenset({"segmentation", "mask"}).
     """
@@ -119,6 +119,16 @@ def determine_data_fields(dataset_configs: List[Dict[str, Any]], config_dir: str
 
         first_entry = content["data"][0]
         ds_fields = frozenset(k for k in optional_fields if k in first_entry)
+
+        for idx, entry in enumerate(content["data"][1:], start=1):
+            entry_fields = frozenset(k for k in optional_fields if k in entry)
+            if entry_fields != ds_fields:
+                raise ValueError(
+                    f"Inconsistent fields in {json_file}: entry 0 has {ds_fields or 'none'}, "
+                    f"but entry {idx} has {entry_fields or 'none'}. "
+                    f"All entries must have the same optional fields."
+                )
+
         fields_per_dataset.append((ds_config['name'], ds_fields))
 
     if not fields_per_dataset:
@@ -141,6 +151,7 @@ def validate_training_data_compatibility(train_config: Dict[str, Any], data_fiel
     dice_loss_weight = train_config.get('dice_loss_weight', 0.0)
     loss_function_masking = train_config.get('loss_function_masking', False)
     roi_masking = train_config.get('roi_masking', False)
+    use_label = train_config.get('use_label', False)
 
     if dice_loss_weight > 0.0 and "segmentation" not in data_fields:
         raise ValueError(
@@ -170,7 +181,7 @@ def validate_training_data_compatibility(train_config: Dict[str, Any], data_fiel
         )
 
 
-def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tuple[int, ...], config_dir: str = "") -> dataset.Dataset:
+def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tuple[int, ...], config_dir: str = "", use_label: bool = False) -> dataset.Dataset:
     """Instantiate a dataset based on config.
 
     Dataset type determines pairing strategy:
@@ -191,6 +202,7 @@ def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tupl
         'shuffle': dataset_config.get('shuffle', True),
         'is_ct': dataset_config.get('is_ct', False),
         'use_cache': dataset_config.get('use_cache', True),
+        'use_label': use_label,
     }
 
     common_params['ct_window'] = tuple(dataset_config.get('ct_window', [-1000, 1000]))
@@ -201,9 +213,9 @@ def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tupl
         json_file = os.path.join(config_dir, json_file)
     common_params['data'] = load_json_dataset_file(json_file)
 
-    if dataset_type in ('unpaired', 'unpaired_with_seg'):
+    if dataset_type == 'unpaired':
         return dataset.Dataset(**common_params)
-    elif dataset_type in ('paired', 'paired_with_seg'):
+    elif dataset_type == 'paired':
         return dataset.PairedDataset(**common_params)
     else:
         raise ValueError(
@@ -254,6 +266,24 @@ def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tupl
     gpus = train_config['gpus']
     num_gpus = len(gpus)
     num_workers = train_config.get('num_workers', 4)
+    use_label = train_config.get('use_label', False)
+
+    if use_label:
+        has_subject_ids = False
+        for ds_config in config['datasets']:
+            json_file = ds_config['json_file']
+            if config_dir and not os.path.isabs(json_file):
+                json_file = os.path.join(config_dir, json_file)
+            with open(json_file, 'r') as f:
+                entries = json.load(f).get("data", [])
+            if any('subject_id' in e for e in entries):
+                has_subject_ids = True
+                break
+        if not has_subject_ids:
+            logger.warning(
+                "use_label is enabled but no 'subject_id' found in any dataset. "
+                "Without subject_id, labels will be identical to images (no-op)."
+            )
 
     datasets = []
     weights = []
@@ -263,7 +293,7 @@ def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tupl
     for ds_config in config['datasets']:
         logger.info(f"Processing dataset: {ds_config['name']} (type={ds_config['type']}, weight={ds_config.get('weight', 1.0)})")
 
-        ds = create_dataset_from_config(ds_config, input_shape, config_dir=config_dir)
+        ds = create_dataset_from_config(ds_config, input_shape, config_dir=config_dir, use_label=use_label)
         ds.compress()
         datasets.append(ds)
 

@@ -10,6 +10,7 @@ This guide shows you how to finetune uniGradICON on your own datasets using conf
 - [Dataset Types](#dataset-types)
 - [JSON Data Fields](#json-data-fields)
 - [Segmentation, Masking, and Dice Loss](#segmentation-masking-and-dice-loss)
+- [Label Randomization](#label-randomization-use_label)
 - [Advanced Features](#advanced-features)
 
 ## Quick Start
@@ -211,7 +212,9 @@ unigradicon-register \
 
 ### Matching Preprocessing Between Finetuning and Inference
 
-The default preprocessing parameters match between finetuning and inference, so no extra flags are needed if you use the defaults. If you customize `quantile_range` or `ct_window` in your finetuning config, pass the same values at inference time:
+The default preprocessing parameters match between finetuning and inference, so no extra flags are needed if you use the defaults. If you customize `quantile_range` or `ct_window` in your finetuning config, pass the same values at inference time.
+
+**Note:** The finetuning `modality` field accepts any string (e.g., `"t1"`, `"flair"`) where only `"ct"` triggers CT preprocessing. The CLI `--fixed_modality` / `--moving_modality` flags accept `"ct"` or `"mri"` only. Use `--fixed_modality mri` for any non-CT modality at inference.
 
 ```bash
 # Example: custom ct_window used during finetuning
@@ -242,10 +245,11 @@ unigradicon-register \
 | `dice_loss_weight` | float | Dice loss weight (requires `segmentation` in JSON) | 0.0 |
 | `loss_function_masking` | bool | Restrict similarity loss to masked regions (requires `mask` in JSON) | false |
 | `roi_masking` | bool | Crop images to ROI before registration (requires `mask` in JSON) | false |
+| `use_label` | bool | Label randomization for modality-invariant training (see below) | false |
 | `lncc_sigma` | int | Sigma for LNCC / SquaredLNCC similarity | 5 |
 | `mind_radius` | int | Radius for MIND-SSC similarity | 2 |
 | `mind_dilation` | int | Dilation for MIND-SSC similarity | 2 |
-| `samples_per_epoch` | int | Samples per epoch (optional) | null |
+| `samples_per_epoch` | int | Samples per epoch (optional) | total dataset size |
 | `num_workers` | int | DataLoader worker processes | 4 |
 
 ### Input Shape Guidance
@@ -279,7 +283,7 @@ unigradicon-register \
 There are two dataset types, which control how image pairs are formed:
 
 ### Unpaired (`unpaired`)
-Random pairs of images from different subjects.
+Random pairs of images from the dataset.
 
 ```yaml
 datasets:
@@ -310,7 +314,7 @@ Each JSON dataset file has a `data` list where each entry contains an `image` pa
 | `segmentation` | No | Path to integer label map for Dice loss |
 | `mask` | No | Path to binary ROI mask for loss masking / image cropping |
 | `subject_id` | No | Subject identifier (required for `paired` type) |
-| `modality` | No | Per-image modality: `"ct"` or `"mri"` (overrides dataset-level `is_ct`) |
+| `modality` | No | Per-image modality (e.g., `"ct"`, `"t1"`, `"t2"`, `"flair"`). `"ct"` uses CT preprocessing, all others use MRI. Also used for label randomization grouping. |
 
 **Consistency rule:** All datasets in a config must provide the same set of optional fields. For example, if one dataset has `segmentation`, all must. This ensures training stability -- the loss function composition is consistent across all batches.
 
@@ -357,7 +361,7 @@ The forward pass accepts three types of auxiliary data, each serving a distinct 
 |-----------|------------|---------|
 | `segmentation_A/B` | `segmentation` field in JSON | Integer label maps for Dice loss computation |
 | `mask_A/B` | `mask` field in JSON | Binary ROI masks passed to similarity function |
-| `label_A/B` | `label_A/B` in forward() | Alternative similarity input (replaces images) |
+| `label_A/B` | Auto-selected from same-subject images via `subject_id` + `modality` | Alternative similarity input for modality-invariant training (`use_label`) |
 
 ### Dice Loss
 
@@ -400,6 +404,49 @@ training:
 ```
 
 This requires both `segmentation` and `mask` fields in the JSON data.
+
+### Label Randomization (`use_label`)
+
+This reproduces the multiGradICON training strategy where the similarity loss is computed
+on a randomly chosen modality image instead of the registration input image. This forces
+the network to learn modality-invariant features.
+
+```yaml
+training:
+  use_label: true
+```
+
+**How it works:** For each pair, the dataset picks a random modality that both subjects
+have in common and uses those images as the similarity input. The network still registers
+the original images, but the loss is evaluated on the randomly chosen modality.
+
+**When to use:** This is designed for multi-sequence MRI datasets (e.g., T1, T2, FLAIR
+from the same scanning session) where all sequences are co-registered. It is generally
+not appropriate for CT + MRI combinations, which come from different scanners and may
+not share the same coordinate space.
+
+**JSON format:** Use `subject_id` to group co-registered images per subject. The `modality`
+field identifies the sequence — labels are always sampled from the same modality across
+both subjects in a pair:
+
+```json
+{
+  "data": [
+    {"image": "sub01_t1.nii.gz", "subject_id": "sub01", "modality": "t1"},
+    {"image": "sub01_t2.nii.gz", "subject_id": "sub01", "modality": "t2"},
+    {"image": "sub01_flair.nii.gz", "subject_id": "sub01", "modality": "flair"},
+    {"image": "sub02_t1.nii.gz", "subject_id": "sub02", "modality": "t1"},
+    {"image": "sub02_t2.nii.gz", "subject_id": "sub02", "modality": "t2"}
+  ]
+}
+```
+
+For preprocessing, `"ct"` triggers CT windowing; all other modality values use MRI
+quantile normalization.
+
+If no `subject_id` is present, `use_label` is a no-op — labels are identical to images.
+For subjects with multiple scans of the same modality (e.g., longitudinal data), the label
+is a randomly chosen scan from the same subject, which can still provide useful regularization.
 
 ## Advanced Features
 
@@ -500,7 +547,7 @@ To use the same preprocessing at inference time, see [Matching Preprocessing Bet
 
 ### Mixed Modality Datasets
 
-When a dataset contains both CT and MRI images (e.g., cross-modality registration), add a `modality` field to each entry in the JSON file. Each image is then preprocessed according to its own modality, regardless of the dataset-level `is_ct` setting:
+When a dataset contains both CT and MRI images (e.g., cross-modality registration), add a `modality` field to each entry in the JSON file. Images with `modality: "ct"` use CT windowing; all other modality values use MRI quantile normalization:
 
 ```json
 {
@@ -513,7 +560,7 @@ When a dataset contains both CT and MRI images (e.g., cross-modality registratio
 }
 ```
 
-MRI images use quantile normalization (`quantile_range`), CT images use HU windowing (`ct_window`). Both parameters can be set in the dataset config:
+Both preprocessing parameters can be set in the dataset config:
 
 ```yaml
 datasets:

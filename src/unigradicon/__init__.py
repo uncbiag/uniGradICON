@@ -114,14 +114,14 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
 
         if self.dice_loss_weight > 0.0 and seg_A_one_hot is not None:
             self.warped_seg_A = compute_warped_image_multiNC(
-                torch.cat([seg_A_one_hot, inbounds_tag], dim=1) if inbounds_tag is not None else seg_A_one_hot.float(),
+                seg_A_one_hot.float(),
                 self.phi_AB_vectorfield,
                 self.spacing,
                 1,
             )
 
             self.warped_seg_B = compute_warped_image_multiNC(
-                torch.cat([seg_B_one_hot, inbounds_tag], dim=1) if inbounds_tag is not None else seg_B_one_hot.float(),
+                seg_B_one_hot.float(),
                 self.phi_BA_vectorfield,
                 self.spacing,
                 1,
@@ -137,38 +137,41 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
                 self.spacing,
                 1,
             )
-            
+
             self.warped_label_B = compute_warped_image_multiNC(
                 torch.cat([label_B, inbounds_tag], dim=1) if inbounds_tag is not None else label_B,
                 self.phi_BA_vectorfield,
                 self.spacing,
                 1,
             )
-            
+
             self.warped_loss_input_A = self.warped_label_A
             self.warped_loss_input_B = self.warped_label_B
+            loss_target_A = label_A
+            loss_target_B = label_B
         else:
             self.warped_loss_input_A = self.warped_image_A
             self.warped_loss_input_B = self.warped_image_B
-            
-              
+            loss_target_A = image_A
+            loss_target_B = image_B
+
         if self.apply_intensity_conservation_loss:
             self.warped_loss_input_A_jacob = self.warped_loss_input_A[jacobian_slice] * jacobian_AB
             self.warped_loss_input_B_jacob = self.warped_loss_input_B[jacobian_slice] * jacobian_BA
             similarity_loss = self.similarity(
-                self.warped_loss_input_B_jacob, 
-                image_A[jacobian_slice], 
+                self.warped_loss_input_B_jacob,
+                loss_target_A[jacobian_slice],
                 mask_A[jacobian_slice] if mask_A is not None else None
             ) + self.similarity(
-                self.warped_loss_input_A_jacob, 
-                image_B[jacobian_slice], 
+                self.warped_loss_input_A_jacob,
+                loss_target_B[jacobian_slice],
                 mask_B[jacobian_slice] if mask_B is not None else None
             )
         else:
             if self.loss_function_masking:
-                similarity_loss = self.similarity(self.warped_loss_input_A, image_B, mask_B) + self.similarity(self.warped_loss_input_B, image_A, mask_A)
+                similarity_loss = self.similarity(self.warped_loss_input_A, loss_target_B, mask_B) + self.similarity(self.warped_loss_input_B, loss_target_A, mask_A)
             else:
-                similarity_loss = self.similarity(self.warped_loss_input_A, image_B) + self.similarity(self.warped_loss_input_B, image_A)
+                similarity_loss = self.similarity(self.warped_loss_input_A, loss_target_B) + self.similarity(self.warped_loss_input_B, loss_target_A)
 
         if len(self.input_shape) - 2 == 3:
             Iepsilon = (

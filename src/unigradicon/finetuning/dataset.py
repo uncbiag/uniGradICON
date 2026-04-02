@@ -119,7 +119,8 @@ class Dataset(TorchDataset):
                  is_ct: bool = False,
                  ct_window: Tuple[float, float] = (-1000, 1000),
                  quantile_range: Tuple[float, float] = (0.0, 0.99),
-                 use_cache: bool = True):
+                 use_cache: bool = True,
+                 use_label: bool = False):
 
         self.read_type = read_type
         self.name = name
@@ -129,18 +130,19 @@ class Dataset(TorchDataset):
         self.ct_window = ct_window
         self.quantile_range = quantile_range
         self.use_cache = use_cache
+        self.use_label = use_label
 
         # Detect optional data fields from JSON entries
         self.has_segmentation = any('segmentation' in item for item in data)
         self.has_mask = any('mask' in item for item in data)
 
-        # Build per-image modality map
+        # Build per-image modality map.
+        # modality can be any string (e.g., "t1", "t2", "flair", "ct").
+        # For preprocessing: "ct" → CT windowing, anything else → MRI normalization.
         self._modality_map = {}
         for item in data:
             mod = item.get('modality')
             if mod is not None:
-                if mod.lower() not in ('ct', 'mri'):
-                    raise ValueError(f"Invalid modality '{mod}' for {item['image']}. Must be 'ct' or 'mri'.")
                 self._modality_map[item['image']] = mod.lower() == 'ct'
         self._modality_hash = _deterministic_hash(self._modality_map)
 
@@ -231,11 +233,32 @@ class Dataset(TorchDataset):
             raise ValueError(f"Dataset '{self.name}': need at least 2 images for registration pairs, got {len(self.keys)}")
         logger.info(f"Dataset '{self.name}': {len(self.keys)} images loaded")
 
-        # Load segmentations and masks
+        # Load segmentations and masks (may remove keys with failed loading)
         if self.has_segmentation:
             self._load_label_maps("segmentation", self._segmentation_map)
         if self.has_mask:
             self._load_label_maps("mask", self._mask_map)
+
+        if len(self.keys) < 2:
+            raise ValueError(f"Dataset '{self.name}': need at least 2 images after loading auxiliary data, got {len(self.keys)}")
+
+        # Build subject-to-modality-images lookup for label randomization.
+        # Built AFTER all loading/filtering so it only references valid keys.
+        self._subject_modality_images = {}  # {subject_id: {modality: [paths]}}
+        self._key_to_subject = {}
+        for item in data:
+            subject_id = item.get('subject_id')
+            path = item['image']
+            if subject_id and path in self.store:
+                mod = item.get('modality', 'default').lower()
+                self._subject_modality_images.setdefault(subject_id, {}).setdefault(mod, []).append(path)
+                self._key_to_subject[path] = subject_id
+
+        if self.use_label and not self._key_to_subject:
+            logger.warning(
+                f"Dataset '{self.name}': use_label is enabled but no images have "
+                f"subject_id. Labels will be identical to images."
+            )
 
     def _load_label_maps(self, field_name: str, path_map: Dict[str, str]):
         """Load and cache segmentation or mask label maps for all images."""
@@ -407,6 +430,23 @@ class Dataset(TorchDataset):
         if self.has_mask:
             result["mask_A"] = self._unpack(self.store[key_a]["mask"])
             result["mask_B"] = self._unpack(self.store[key_b]["mask"])
+        if self.use_label:
+            subject_a = self._key_to_subject.get(key_a)
+            subject_b = self._key_to_subject.get(key_b)
+            if subject_a and subject_b:
+                mods_a = set(self._subject_modality_images[subject_a].keys())
+                mods_b = set(self._subject_modality_images[subject_b].keys())
+                common = sorted(mods_a & mods_b)
+                if common:
+                    modality = random.choice(common)
+                    result["label_A"] = self.get_image(random.choice(self._subject_modality_images[subject_a][modality]))
+                    result["label_B"] = self.get_image(random.choice(self._subject_modality_images[subject_b][modality]))
+                else:
+                    result["label_A"] = result["image_A"]
+                    result["label_B"] = result["image_B"]
+            else:
+                result["label_A"] = result["image_A"]
+                result["label_B"] = result["image_B"]
         return result
 
     def __len__(self):
