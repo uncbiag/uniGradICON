@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 REQUIRED_EXPERIMENT_KEYS = {'name', 'model_weights'}
 REQUIRED_DATASET_KEYS = {'name', 'type', 'json_file'}
+OPTIONAL_DATA_FIELDS = frozenset({"segmentation", "mask"})
 VALID_TRAINING_KEYS = {
     'batch_size', 'gpus', 'epochs', 'eval_period', 'save_period', 'learning_rate',
     'input_shape', 'seed', 'similarity', 'lambda', 'dice_loss_weight',
@@ -96,15 +97,23 @@ def load_json_dataset_file(json_path: str) -> List[Dict[str, str]]:
     return data
 
 
-def determine_data_fields(dataset_configs: List[Dict[str, Any]], config_dir: str) -> FrozenSet[str]:
-    """Determine which optional data fields (segmentation, mask) are available across all datasets.
+def required_data_fields(train_config: Dict[str, Any]) -> FrozenSet[str]:
+    """Determine which optional data fields are required by the training config."""
+    fields = set()
+    if train_config.get('dice_loss_weight', 0.0) > 0.0:
+        fields.add("segmentation")
+    if train_config.get('loss_function_masking', False) or train_config.get('roi_masking', False):
+        fields.add("mask")
+    return frozenset(fields)
 
-    Checks all entries in each dataset's JSON file to detect and validate fields.
-    Validates that all datasets provide the same fields.
-    Returns a frozenset of field names, e.g. frozenset({"segmentation", "mask"}).
+
+def determine_data_fields(dataset_configs: List[Dict[str, Any]], config_dir: str) -> Dict[str, List[FrozenSet[str]]]:
+    """Determine which optional data fields (segmentation, mask) are present.
+
+    Returns a mapping from dataset name to per-entry field sets. Validation of
+    whether these fields are sufficient is driven by the training config.
     """
-    optional_fields = {"segmentation", "mask"}
-    fields_per_dataset = []
+    fields_per_dataset = {}
 
     for ds_config in dataset_configs:
         json_file = ds_config['json_file']
@@ -117,79 +126,61 @@ def determine_data_fields(dataset_configs: List[Dict[str, Any]], config_dir: str
         if "data" not in content or not content["data"]:
             raise ValueError(f"JSON file {json_file} has no data entries")
 
-        first_entry = content["data"][0]
-        ds_fields = frozenset(k for k in optional_fields if k in first_entry)
+        fields_per_dataset[ds_config['name']] = [
+            frozenset(k for k in OPTIONAL_DATA_FIELDS if k in entry)
+            for entry in content["data"]
+        ]
 
-        for idx, entry in enumerate(content["data"][1:], start=1):
-            entry_fields = frozenset(k for k in optional_fields if k in entry)
-            if entry_fields != ds_fields:
+    return fields_per_dataset
+
+
+def validate_training_data_compatibility(
+    fields_per_dataset: Dict[str, List[FrozenSet[str]]],
+    data_fields: FrozenSet[str],
+):
+    """Cross-validate training config requirements against available data fields."""
+    for dataset_name, entry_fields in fields_per_dataset.items():
+        for idx, fields in enumerate(entry_fields):
+            missing = data_fields - fields
+            if missing:
                 raise ValueError(
-                    f"Inconsistent fields in {json_file}: entry 0 has {ds_fields or 'none'}, "
-                    f"but entry {idx} has {entry_fields or 'none'}. "
-                    f"All entries must have the same optional fields."
+                    f"Dataset '{dataset_name}' entry {idx} is missing required field(s) "
+                    f"{sorted(missing)} for the current training config."
                 )
 
-        fields_per_dataset.append((ds_config['name'], ds_fields))
-
-    if not fields_per_dataset:
-        return frozenset()
-
-    reference_name, reference_fields = fields_per_dataset[0]
-    for ds_name, ds_fields in fields_per_dataset[1:]:
-        if ds_fields != reference_fields:
-            raise ValueError(
-                f"All datasets must provide the same data fields. "
-                f"Dataset '{reference_name}' has {reference_fields or 'none'}, "
-                f"but '{ds_name}' has {ds_fields or 'none'}."
-            )
-
-    return reference_fields
-
-
-def validate_training_data_compatibility(train_config: Dict[str, Any], data_fields: FrozenSet[str]):
-    """Cross-validate training config requirements against available data fields."""
-    dice_loss_weight = train_config.get('dice_loss_weight', 0.0)
-    loss_function_masking = train_config.get('loss_function_masking', False)
-    roi_masking = train_config.get('roi_masking', False)
-    use_label = train_config.get('use_label', False)
-
-    if dice_loss_weight > 0.0 and "segmentation" not in data_fields:
-        raise ValueError(
-            "dice_loss_weight requires 'segmentation' field in JSON data entries. "
-            "Add segmentation paths to your dataset JSON files."
-        )
-    if loss_function_masking and "mask" not in data_fields:
-        raise ValueError(
-            "loss_function_masking requires 'mask' field in JSON data entries. "
-            "Add mask paths to your dataset JSON files."
-        )
-    if roi_masking and "mask" not in data_fields:
-        raise ValueError(
-            "roi_masking requires 'mask' field in JSON data entries. "
-            "Add mask paths to your dataset JSON files."
-        )
-
-    if "segmentation" in data_fields and dice_loss_weight == 0.0:
+    available_fields = frozenset().union(
+        *(fields for entry_fields in fields_per_dataset.values() for fields in entry_fields)
+    ) if fields_per_dataset else frozenset()
+    ignored_fields = available_fields - data_fields
+    if ignored_fields:
         logger.warning(
-            "Segmentation data is present but dice_loss_weight is 0. "
-            "Segmentation data will be loaded but unused."
-        )
-    if "mask" in data_fields and not loss_function_masking and not roi_masking:
-        logger.warning(
-            "Mask data is present but neither loss_function_masking nor roi_masking is enabled. "
-            "Mask data will be loaded but unused."
+            f"Ignoring optional JSON field(s) not required by training config: {sorted(ignored_fields)}"
         )
 
 
-def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tuple[int, ...], config_dir: str = "", use_label: bool = False) -> dataset.Dataset:
+def _keep_required_optional_fields(data: List[Dict[str, str]], data_fields: FrozenSet[str]) -> List[Dict[str, str]]:
+    """Drop optional fields that are not required by this training run."""
+    keep_fields = OPTIONAL_DATA_FIELDS & data_fields
+    filtered = []
+    for item in data:
+        filtered_item = dict(item)
+        for field in OPTIONAL_DATA_FIELDS - keep_fields:
+            filtered_item.pop(field, None)
+        filtered.append(filtered_item)
+    return filtered
+
+
+def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tuple[int, ...],
+                               config_dir: str = "", use_label: bool = False,
+                               data_fields: FrozenSet[str] = frozenset()) -> dataset.Dataset:
     """Instantiate a dataset based on config.
 
     Dataset type determines pairing strategy:
     - ``unpaired``: random pairing from all images
     - ``paired``: subject-based pairing (requires ``subject_id`` in JSON)
 
-    What data is loaded (images, segmentations, masks) is determined by the
-    fields present in the JSON file, not by the dataset type.
+    What auxiliary data is loaded (segmentations, masks) is determined by
+    the training config's required data fields, not by the dataset type.
     """
     dataset_type = dataset_config['type']
 
@@ -211,7 +202,9 @@ def create_dataset_from_config(dataset_config: Dict[str, Any], input_shape: Tupl
     json_file = dataset_config['json_file']
     if config_dir and not os.path.isabs(json_file):
         json_file = os.path.join(config_dir, json_file)
-    common_params['data'] = load_json_dataset_file(json_file)
+    common_params['data'] = _keep_required_optional_fields(
+        load_json_dataset_file(json_file), data_fields
+    )
 
     if dataset_type == 'unpaired':
         return dataset.Dataset(**common_params)
@@ -237,7 +230,7 @@ def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tupl
         train_loader: DataLoader for training with weighted sampling
         val_loaders: Dict mapping dataset name to its validation DataLoader
         config: The loaded configuration dictionary
-        data_fields: Frozenset of optional data fields available (e.g. {"segmentation", "mask"})
+        data_fields: Frozenset of optional data fields required by the config
     """
     if config is None:
         config = load_config(config_path)
@@ -257,9 +250,10 @@ def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tupl
     for k, v in training_defaults.items():
         train_config.setdefault(k, v)
 
-    data_fields = determine_data_fields(config['datasets'], config_dir)
-    validate_training_data_compatibility(train_config, data_fields)
-    logger.info(f"Data fields: {data_fields or 'images only'}")
+    data_fields = required_data_fields(train_config)
+    fields_per_dataset = determine_data_fields(config['datasets'], config_dir)
+    validate_training_data_compatibility(fields_per_dataset, data_fields)
+    logger.info(f"Required data fields: {data_fields or 'images only'}")
 
     input_shape = train_config['input_shape']
     batch_size = train_config['batch_size']
@@ -293,7 +287,13 @@ def create_data_loaders(config_path: str, config: Dict[str, Any] = None) -> Tupl
     for ds_config in config['datasets']:
         logger.info(f"Processing dataset: {ds_config['name']} (type={ds_config['type']}, weight={ds_config.get('weight', 1.0)})")
 
-        ds = create_dataset_from_config(ds_config, input_shape, config_dir=config_dir, use_label=use_label)
+        ds = create_dataset_from_config(
+            ds_config,
+            input_shape,
+            config_dir=config_dir,
+            use_label=use_label,
+            data_fields=data_fields,
+        )
         ds.compress()
         datasets.append(ds)
 

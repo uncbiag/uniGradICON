@@ -1,7 +1,6 @@
 import logging
 import os
 import random
-import traceback
 import footsteps
 from tqdm import tqdm
 import torch
@@ -19,23 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 def loss_to_dict(loss_object):
-    """Convert loss object (ICONLoss or ICONDiceLoss) to dictionary of floats."""
-    def tensor_to_float(tensor):
-        if torch.is_tensor(tensor):
-            return torch.mean(tensor).item()
-        return tensor
-
-    if hasattr(loss_object, 'dice_loss'):
-        return {
-            'all_loss': tensor_to_float(loss_object.all_loss),
-            'inverse_consistency_loss': tensor_to_float(loss_object.inverse_consistency_loss),
-            'similarity_loss': tensor_to_float(loss_object.similarity_loss),
-            'transform_magnitude': tensor_to_float(loss_object.transform_magnitude),
-            'flips': tensor_to_float(loss_object.flips),
-            'dice_loss': tensor_to_float(loss_object.dice_loss),
-        }
-    else:
-        return to_floats(loss_object)._asdict()
+    """Convert loss object to dictionary of floats."""
+    return to_floats(loss_object)._asdict()
 
 
 def _affine_warp(image, forward, mode='bilinear'):
@@ -299,53 +283,50 @@ def finetune_multi(config, data_loader, val_data_loaders_dict, data_fields):
             net.eval()
             with torch.no_grad():
                 for dataset_name, val_loader in val_data_loaders_dict.items():
-                    try:
-                        val_batch = next(iter(val_loader))
-                        val_batch = {k: v.to(device) for k, v in val_batch.items()}
+                    val_batch = next(iter(val_loader))
+                    val_batch = {k: v.to(device) for k, v in val_batch.items()}
 
-                        forward_kwargs = {}
-                        if use_label and 'label_A' in val_batch:
-                            forward_kwargs['label_A'] = val_batch['label_A']
-                            forward_kwargs['label_B'] = val_batch['label_B']
-                        if dice_loss_weight > 0.0 and has_segmentation:
-                            forward_kwargs['segmentation_A'] = val_batch['segmentation_A']
-                            forward_kwargs['segmentation_B'] = val_batch['segmentation_B']
-                        if loss_function_masking and has_mask:
-                            forward_kwargs['mask_A'] = val_batch['mask_A']
-                            forward_kwargs['mask_B'] = val_batch['mask_B']
+                    forward_kwargs = {}
+                    if use_label and 'label_A' in val_batch:
+                        forward_kwargs['label_A'] = val_batch['label_A']
+                        forward_kwargs['label_B'] = val_batch['label_B']
+                    if dice_loss_weight > 0.0 and has_segmentation:
+                        forward_kwargs['segmentation_A'] = val_batch['segmentation_A']
+                        forward_kwargs['segmentation_B'] = val_batch['segmentation_B']
+                    if loss_function_masking and has_mask:
+                        forward_kwargs['mask_A'] = val_batch['mask_A']
+                        forward_kwargs['mask_B'] = val_batch['mask_B']
 
-                        val_loss = net(val_batch['image_A'], val_batch['image_B'], **forward_kwargs)
+                    val_loss = net(val_batch['image_A'], val_batch['image_B'], **forward_kwargs)
 
-                        for k, v in loss_to_dict(val_loss).items():
-                            writer.add_scalar(f"val/{dataset_name}/{k}", v, iteration)
-                        add_eval_image_panels(
+                    for k, v in loss_to_dict(val_loss).items():
+                        writer.add_scalar(f"val/{dataset_name}/{k}", v, iteration)
+                    add_eval_image_panels(
+                        writer,
+                        dataset_name,
+                        iteration,
+                        val_batch['image_A'],
+                        val_batch['image_B'],
+                        net.warped_image_A,
+                    )
+
+                    if has_segmentation:
+                        warped_seg_for_viz = None
+                        if dice_loss_weight > 0.0 and hasattr(net, "warped_seg_A"):
+                            warped_seg_for_viz = net.warped_seg_A
+                        add_eval_segmentation_panels(
                             writer,
                             dataset_name,
                             iteration,
-                            val_batch['image_A'],
-                            val_batch['image_B'],
-                            net.warped_image_A,
+                            val_batch['segmentation_A'],
+                            val_batch['segmentation_B'],
+                            warped_seg_for_viz,
+                            moving_image=val_batch['image_A'],
+                            fixed_image=val_batch['image_B'],
+                            warped_image=net.warped_image_A,
                         )
 
-                        if has_segmentation:
-                            warped_seg_for_viz = None
-                            if dice_loss_weight > 0.0 and hasattr(net, "warped_seg_A"):
-                                warped_seg_for_viz = net.warped_seg_A
-                            add_eval_segmentation_panels(
-                                writer,
-                                dataset_name,
-                                iteration,
-                                val_batch['segmentation_A'],
-                                val_batch['segmentation_B'],
-                                warped_seg_for_viz,
-                                moving_image=val_batch['image_A'],
-                                fixed_image=val_batch['image_B'],
-                                warped_image=net.warped_image_A,
-                            )
-
-                        net.clean()
-                    except Exception:
-                        logger.warning(f"Validation failed for {dataset_name}:\n{traceback.format_exc()}")
+                    net.clean()
 
             net_par.train()
             if device.type == "cuda":

@@ -2,6 +2,8 @@ import logging
 import torch
 import numpy as np
 import collections
+import hashlib
+import json
 from tqdm import tqdm
 import random
 import os
@@ -29,6 +31,12 @@ def _deterministic_hash(modality_map: dict) -> str:
     return str(sorted(modality_map.items()))
 
 
+def _json_fingerprint(value) -> str:
+    """Compute a stable fingerprint for JSON-derived dataset metadata."""
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def reorient(moving):
     desired_coordinate_orientation = itk.ITKCommonBasePython.itkSpatialOrientationEnums.ValidCoordinateOrientations_ITK_COORDINATE_ORIENTATION_RAS
 
@@ -43,11 +51,14 @@ def reorient(moving):
 
 def _validate_cache(cache: dict, name: str, maximum_images, read_type: str, is_ct: bool,
                     ct_window: Tuple[float, float], quantile_range: Tuple[float, float],
-                    modality_hash: str = ""):
+                    modality_hash: str = "", input_shape: Optional[Tuple[int, ...]] = None,
+                    data_fingerprint: str = ""):
     """Validate cache metadata matches current dataset parameters."""
     errors = []
     if cache.get("name") != name:
         errors.append(f"name: expected '{name}', got '{cache.get('name')}'")
+    if input_shape is not None and cache.get("input_shape") != list(input_shape):
+        errors.append(f"input_shape: expected {list(input_shape)}, got {cache.get('input_shape')}")
     if cache.get("maximum_images") != maximum_images:
         errors.append(f"maximum_images: expected {maximum_images}, got {cache.get('maximum_images')}")
     if cache.get("read_type") != read_type:
@@ -60,6 +71,8 @@ def _validate_cache(cache: dict, name: str, maximum_images, read_type: str, is_c
         errors.append(f"quantile_range: expected {quantile_range}, got {cache.get('quantile_range')}")
     if cache.get("modality_hash") != modality_hash:
         errors.append(f"per-image modality settings changed")
+    if cache.get("data_fingerprint") != data_fingerprint:
+        errors.append("dataset JSON contents changed")
     if errors:
         raise ValueError(
             f"Cache file is stale or incompatible with current config. Mismatches: {'; '.join(errors)}. "
@@ -131,6 +144,7 @@ class Dataset(TorchDataset):
         self.quantile_range = quantile_range
         self.use_cache = use_cache
         self.use_label = use_label
+        self._data_fingerprint = _json_fingerprint(data)
 
         # Detect optional data fields from JSON entries
         self.has_segmentation = any('segmentation' in item for item in data)
@@ -188,7 +202,8 @@ class Dataset(TorchDataset):
             loaded_cache = torch.load(self._cache_path, map_location="cpu", weights_only=False)
             _validate_cache(loaded_cache, self.name, maximum_images, self.read_type,
                             self.is_ct, self.ct_window, self.quantile_range,
-                            self._modality_hash)
+                            self._modality_hash, self.input_shape,
+                            self._data_fingerprint)
             self.store = loaded_cache["store"]
         else:
             self.store = {}
@@ -217,6 +232,7 @@ class Dataset(TorchDataset):
                 torch.save(
                     {
                         "name": self.name,
+                        "input_shape": list(self.input_shape),
                         "maximum_images": maximum_images,
                         "store": self.store,
                         "read_type": self.read_type,
@@ -224,6 +240,7 @@ class Dataset(TorchDataset):
                         "ct_window": self.ct_window,
                         "quantile_range": self.quantile_range,
                         "modality_hash": self._modality_hash,
+                        "data_fingerprint": self._data_fingerprint,
                     },
                     self._cache_path,
                 )
@@ -263,14 +280,20 @@ class Dataset(TorchDataset):
     def _load_label_maps(self, field_name: str, path_map: Dict[str, str]):
         """Load and cache segmentation or mask label maps for all images."""
         cache_path = None
+        path_map_fingerprint = _json_fingerprint(path_map)
         if self._cache_path:
             cache_path = self._cache_path.replace("_cached_dataset.trch", f"_cached_{field_name}s.trch")
 
         if cache_path and os.path.exists(cache_path):
             cache = torch.load(cache_path, map_location="cpu", weights_only=False)
             cached_shape = cache.get("input_shape")
+            cached_path_map_fingerprint = cache.get("path_map_fingerprint")
             cached_data = cache.get("data", {})
-            if cached_shape == list(self.input_shape) and all(path in cached_data for path in self.keys):
+            if (
+                cached_shape == list(self.input_shape)
+                and cached_path_map_fingerprint == path_map_fingerprint
+                and all(path in cached_data for path in self.keys)
+            ):
                 for path in self.keys:
                     self.store[path][field_name] = cached_data[path]
                 return
@@ -299,6 +322,7 @@ class Dataset(TorchDataset):
             torch.save(
                 {
                     "input_shape": list(self.input_shape),
+                    "path_map_fingerprint": path_map_fingerprint,
                     "data": {path: self.store[path][field_name] for path in self.keys},
                 },
                 cache_path,

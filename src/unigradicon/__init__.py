@@ -1,5 +1,6 @@
 import itk
 import os
+import warnings
 
 import footsteps
 import numpy as np
@@ -393,28 +394,28 @@ def quantile(arr: torch.Tensor, q):
     l = len(arr)
     return torch.kthvalue(arr, max(1, min(int(q * l), l))).values
 
-def apply_mask(image, segmentation):
-    segmentation_cast_filter = itk.CastImageFilter[type(segmentation),
+def apply_mask(image, mask):
+    mask_cast_filter = itk.CastImageFilter[type(mask),
                                             itk.Image.F3].New()
-    segmentation_cast_filter.SetInput(segmentation)
-    segmentation_cast_filter.Update()
-    segmentation = segmentation_cast_filter.GetOutput()
+    mask_cast_filter.SetInput(mask)
+    mask_cast_filter.Update()
+    mask = mask_cast_filter.GetOutput()
     mask_filter = itk.MultiplyImageFilter[itk.Image.F3, itk.Image.F3,
                                     itk.Image.F3].New()
 
     mask_filter.SetInput1(image)
-    mask_filter.SetInput2(segmentation)
+    mask_filter.SetInput2(mask)
     mask_filter.Update()
 
     return mask_filter.GetOutput()
 
-def preprocess(image, modality="ct", segmentation=None, ct_window=None, quantile_range=None):
+def preprocess(image, modality="ct", mask=None, ct_window=None, quantile_range=None):
     """Preprocess a medical image for registration.
 
     Args:
         image: ITK image to preprocess.
         modality: 'ct' or 'mri'.
-        segmentation: Optional ITK segmentation to mask the image (ROI masking).
+        mask: Optional binary ITK mask to apply to the image intensities.
         ct_window: Optional (min, max) HU window for CT. Default: (-1000, 1000).
         quantile_range: Optional (lower, upper) quantile range for MRI normalization.
             Default (None): uses actual image min and 99th percentile, matching
@@ -442,8 +443,8 @@ def preprocess(image, modality="ct", segmentation=None, ct_window=None, quantile
 
     image = itk.shift_scale_image_filter(image, shift=-min_, scale = 1/(max_-min_))
 
-    if segmentation is not None:
-        image = apply_mask(image, segmentation)
+    if mask is not None:
+        image = apply_mask(image, mask)
     return image
 
 def main():
@@ -462,13 +463,12 @@ def main():
                          type=str, help="The path of the segmentation map of the fixed image.")
     parser.add_argument("--moving_segmentation", required=False,
                          type=str, help="The path of the segmentation map of the moving image.")
-    parser.add_argument(
-        "--masking_mode",
-        choices=["roi", "loss", "none"],
-        default="roi",
-        help="How to use provided segmentations: 'roi' masks the input images (default), "
-             "'loss' uses masks only for loss/Dice, 'none' ignores masks for both."
-    )
+    parser.add_argument("--fixed_mask", required=False,
+                         type=str, help="The path of the binary mask for the fixed image.")
+    parser.add_argument("--moving_mask", required=False,
+                         type=str, help="The path of the binary mask for the moving image.")
+    parser.add_argument("--input_masking", required=False,
+                         action="store_true", help="Apply the provided masks to input image intensities before registration.")
     parser.add_argument("--transform_out", required=True,
                          type=str, help="The path to save the transform.")
     parser.add_argument("--warped_moving_out", required=False,
@@ -480,8 +480,7 @@ def main():
     parser.add_argument("--model", required=False,
                          default="unigradicon", help="The model to load. Default is unigradicon. Choose from [unigradicon, multigradicon].")
     parser.add_argument("--loss_function_masking", required=False,
-                         action="store_true", help="Apply loss/similarity masking using the provided segmentations "
-                                                    "(can be combined with masking_mode).")
+                         action="store_true", help="Apply loss/similarity masking using the provided masks.")
     parser.add_argument("--intensity_conservation_loss", required=False,
                             action="store_true", help="Enable determinant-based intensity correction in the loss \
                             function for mass-conserving registration. Applicable only for CT modality where -1000 HU represents air.")
@@ -529,11 +528,59 @@ def main():
         moving_segmentation = itk.CastImageFilter[type(moving_segmentation), itk.Image[itk.SS, 3]].New()(moving_segmentation)
     else:
         moving_segmentation = None
-        
-    needs_masks = args.loss_function_masking
+
+    if args.fixed_mask is not None:
+        fixed_mask = itk.imread(args.fixed_mask)
+        fixed_mask = itk.CastImageFilter[type(fixed_mask), itk.Image[itk.SS, 3]].New()(fixed_mask)
+    else:
+        fixed_mask = None
+
+    if args.moving_mask is not None:
+        moving_mask = itk.imread(args.moving_mask)
+        moving_mask = itk.CastImageFilter[type(moving_mask), itk.Image[itk.SS, 3]].New()(moving_mask)
+    else:
+        moving_mask = None
+
+    legacy_segmentation_masks = False
+    if (
+        fixed_mask is None
+        and moving_mask is None
+        and fixed_segmentation is not None
+        and moving_segmentation is not None
+        and args.dice_loss_weight == 0.0
+        and not args.input_masking
+    ):
+        # Preserve the unigradicon<=1.0.5 behavior where providing segmentations
+        # used them as masks: input masks by default, loss masks with
+        # --loss_function_masking.
+        if not args.loss_function_masking:
+            args.input_masking = True
+        legacy_segmentation_masks = True
+
+    if (
+        (legacy_segmentation_masks or args.loss_function_masking)
+        and fixed_mask is None
+        and moving_mask is None
+        and fixed_segmentation is not None
+        and moving_segmentation is not None
+        and args.dice_loss_weight == 0.0
+    ):
+        warnings.warn(
+            "Using segmentations as masks is deprecated. Use --fixed_mask and "
+            "--moving_mask for input/loss masking; reserve --fixed_segmentation "
+            "and --moving_segmentation for Dice loss labels.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        fixed_mask = fixed_segmentation
+        moving_mask = moving_segmentation
+
+    needs_masks = args.input_masking or args.loss_function_masking
     needs_segmentations = args.dice_loss_weight > 0.0
-    if (needs_masks or needs_segmentations) and (fixed_segmentation is None or moving_segmentation is None):
-        raise ValueError("Loss masking/Dice requires both fixed and moving segmentations.")
+    if needs_masks and (fixed_mask is None or moving_mask is None):
+        raise ValueError("Input masking/loss masking requires both fixed and moving masks.")
+    if needs_segmentations and (fixed_segmentation is None or moving_segmentation is None):
+        raise ValueError("Dice loss requires both fixed and moving segmentations.")
 
     if args.io_iterations == "None":
         io_iterations = None
@@ -547,25 +594,25 @@ def main():
     masked_moving = preprocess(
         moving,
         args.moving_modality,
-        moving_segmentation if args.masking_mode == "roi" else None,
+        moving_mask if args.input_masking else None,
         ct_window=ct_win,
         quantile_range=q_range,
     )
     masked_fixed = preprocess(
         fixed,
         args.fixed_modality,
-        fixed_segmentation if args.masking_mode == "roi" else None,
+        fixed_mask if args.input_masking else None,
         ct_window=ct_win,
         quantile_range=q_range,
     )
 
-    if needs_masks or needs_segmentations:
+    if args.loss_function_masking or needs_segmentations:
         phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(
             net,
             masked_moving,
             masked_fixed,
-            mask_A=moving_segmentation if needs_masks else None,
-            mask_B=fixed_segmentation if needs_masks else None,
+            mask_A=moving_mask if args.loss_function_masking else None,
+            mask_B=fixed_mask if args.loss_function_masking else None,
             finetune_steps=io_iterations,
             segmentation_A=moving_segmentation if needs_segmentations else None,
             segmentation_B=fixed_segmentation if needs_segmentations else None,

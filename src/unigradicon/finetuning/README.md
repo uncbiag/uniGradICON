@@ -53,9 +53,9 @@ pip install unigradicon
 
 Download the **training splits** from the [Learn2Reg Datasets page](https://learn2reg.grand-challenge.org/Datasets/) (requires a free Grand Challenge account):
 
-- **OASIS** — brain MRI with 35 anatomical structure labels
-- **LungCT** — paired inspiration/expiration lung CT with lung masks
-- **AbdomenMRCT** — abdomen CT/MR with organ labels (cross-modality)
+- **OASIS**: brain MRI with 35 anatomical structure labels
+- **LungCT**: paired inspiration/expiration lung CT with lung masks
+- **AbdomenMRCT**: abdomen CT/MR with organ labels (cross-modality)
 
 ### 3. Extract into a `datasets/` directory
 
@@ -306,7 +306,12 @@ datasets:
 
 ## JSON Data Fields
 
-Each JSON dataset file has a `data` list where each entry contains an `image` path and optional fields. What data is loaded is determined by the fields present in the JSON, not by the dataset type.
+Each JSON dataset file has a `data` list where each entry contains an `image` path and optional fields. The training configuration determines which optional fields are required and loaded:
+
+- `dice_loss_weight > 0` requires `segmentation`
+- `loss_function_masking: true` or `roi_masking: true` requires `mask`
+
+Optional fields that are present in JSON but not required by the current training configuration are ignored.
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -316,7 +321,9 @@ Each JSON dataset file has a `data` list where each entry contains an `image` pa
 | `subject_id` | No | Subject identifier (required for `paired` type) |
 | `modality` | No | Per-image modality (e.g., `"ct"`, `"t1"`, `"t2"`, `"flair"`). `"ct"` uses CT preprocessing, all others use MRI. Also used for label randomization grouping. |
 
-**Consistency rule:** All datasets in a config must provide the same set of optional fields. For example, if one dataset has `segmentation`, all must. This ensures training stability -- the loss function composition is consistent across all batches.
+**Consistency rule:** Every dataset entry in every dataset must provide the optional fields required by the training configuration. This ensures training stability, and the loss function composition is consistent across all batches.
+
+If required fields are missing, config validation fails before training starts with a clear error listing the dataset and entry index.
 
 ### Example: images only
 ```json
@@ -426,7 +433,7 @@ not appropriate for CT + MRI combinations, which come from different scanners an
 not share the same coordinate space.
 
 **JSON format:** Use `subject_id` to group co-registered images per subject. The `modality`
-field identifies the sequence — labels are always sampled from the same modality across
+field identifies the sequence. Labels are always sampled from the same modality across
 both subjects in a pair:
 
 ```json
@@ -444,7 +451,7 @@ both subjects in a pair:
 For preprocessing, `"ct"` triggers CT windowing; all other modality values use MRI
 quantile normalization.
 
-If no `subject_id` is present, `use_label` is a no-op — labels are identical to images.
+If no `subject_id` is present, `use_label` is a no-op. Labels are identical to images.
 For subjects with multiple scans of the same modality (e.g., longitudinal data), the label
 is a randomly chosen scan from the same subject, which can still provide useful regularization.
 
