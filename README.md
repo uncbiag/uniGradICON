@@ -62,6 +62,11 @@ To use a different similarity measure in the IO. We currently support three simi
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2
 ```
 
+To change the instance optimization learning rate, use `--io_lr`. The default is `0.0002`. Increasing `--io_lr` may allow fewer `--io_iterations`, reducing runtime while preserving registration quality.
+```
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_lr 0.0002
+```
+
 To load specific model weights during inference. We currently support uniGradICON and multiGradICON.
 ```
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --model multigradicon

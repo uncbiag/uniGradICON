@@ -475,6 +475,8 @@ def main():
                         default=None, type=str, help="The path to save the warped image.")
     parser.add_argument("--io_iterations", required=False,
                          default="50", help="The number of IO iterations. Default is 50. Set to 'None' to disable IO.")
+    parser.add_argument("--io_lr", required=False, type=float, default=0.0002,
+                         help="The learning rate for instance optimization. Default is 0.0002.")
     parser.add_argument("--io_sim", required=False,
                          default="lncc", help="The similarity measure used in IO. Default is LNCC. Choose from [lncc, lncc2, mind].")
     parser.add_argument("--model", required=False,
@@ -504,6 +506,9 @@ def main():
 
     if args.network_weights is not None and not os.path.exists(args.network_weights):
         raise FileNotFoundError(f"Network weights file not found: {args.network_weights}")
+
+    if args.io_lr <= 0:
+        raise ValueError("--io_lr must be positive.")
 
     net = get_model_from_model_zoo(
         args.model,
@@ -614,6 +619,7 @@ def main():
             mask_A=moving_mask if args.loss_function_masking else None,
             mask_B=fixed_mask if args.loss_function_masking else None,
             finetune_steps=io_iterations,
+            learning_rate=args.io_lr,
             segmentation_A=moving_segmentation if needs_segmentations else None,
             segmentation_B=fixed_segmentation if needs_segmentations else None,
         )
@@ -622,7 +628,8 @@ def main():
             net,
             masked_moving,
             masked_fixed,
-            finetune_steps=io_iterations)
+            finetune_steps=io_iterations,
+            learning_rate=args.io_lr)
 
     itk.transformwrite([phi_AB], args.transform_out)
 
