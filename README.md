@@ -41,7 +41,7 @@ source unigradicon_virtualenv/bin/activate
 pip install unigradicon
 ```
 
-To register one pair of image
+To register one pair of images
 ```
 wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_1.nrrd
 wget https://www.hgreer.com/assets/slicer_mirror/RegLib_C01_2.nrrd
@@ -62,9 +62,9 @@ To use a different similarity measure in the IO. We currently support three simi
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2
 ```
 
-To change the instance optimization learning rate, use `--io_lr`. The default is `0.0002`. Increasing `--io_lr` may allow fewer `--io_iterations`, reducing runtime while preserving registration quality.
+To change the instance optimization learning rate, use `--io_lr` (default is `0.00002`; must be positive). You can try increasing `--io_lr` while lowering `--io_iterations`; this may reduce runtime while giving similar registration quality.
 ```
-unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_lr 0.0002
+unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --moving=RegLib_C01_1.nrrd --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_lr 0.00002
 ```
 
 To load specific model weights during inference. We currently support uniGradICON and multiGradICON.
@@ -101,7 +101,7 @@ Input masking and loss masking are independent. If you want masks used for both 
 unigradicon-register ... --input_masking --loss_function_masking
 ```
 
-To use intensity conservation loss in the IO (CT only), ensure images are in a valid CT intensity space where conservation assumptions hold (e.g., air at -1000 HU), then run:
+Intensity conservation loss ensures proper intensity adjustments for registration tasks requiring mass conservation, utilizing the change of variables rule from integration. This loss function is specifically valid for CT modality, where -1000 HU represents air. To apply this loss function, set the modality to CT and enable the intensity conservation loss flag:
 ```
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=ct --moving=RegLib_C01_1.nrrd --moving_modality=ct --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --intensity_conservation_loss
 ```
@@ -111,7 +111,7 @@ To optimize using Dice loss for improved anatomical structure alignment, provide
 The total loss becomes:  
 `L_total = lambda * L_inverse_consistency + L_similarity + dice_loss_weight * L_dice`.
 
-This feature is particularly useful for organ registration, brain structure alignment, and other tasks where anatomical correspondence is critical. Note that the model expects segmentations to be single-channel images with the same shape as the input images. The segmentations are automatically converted to one-hot encoding.
+This feature is particularly useful for organ registration, brain structure alignment, and other tasks where anatomical correspondence is critical. Note that the model expects segmentations to be single-channel images with the same shape as the input images. The segmentations are automatically converted to one-hot encoding. At least one **non-zero** label id must appear in **both** segmentations (excluding background `0`); otherwise registration fails with a clear error.
 
 ```
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --dice_loss_weight 0.1
@@ -122,7 +122,7 @@ To use custom network weights (e.g., after [finetuning](src/unigradicon/finetuni
 unigradicon-register --fixed=fixed.nii.gz --fixed_modality=mri --moving=moving.nii.gz --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped.nii.gz --network_weights /path/to/network_weights_final.trch
 ```
 
-If you customized preprocessing during finetuning, pass the same values at inference with `--ct_window` (for CT) or `--quantile_range` (for MRI):
+If you customized preprocessing during finetuning, pass the same values at inference with `--ct_window` (for CT) or `--quantile_range` (for MRI). The resulting intensity range after clamping must have max greater than min (for example, avoid equal `ct_window` bounds or a degenerate quantile range).
 ```
 unigradicon-register --fixed=fixed.nii.gz --fixed_modality=mri --moving=moving.nii.gz --moving_modality=mri --transform_out=trans.hdf5 --quantile_range 0.0 0.99 --network_weights /path/to/network_weights_final.trch
 ```
@@ -134,12 +134,12 @@ unigradicon-finetune --config /path/to/config.yaml
 
 To warp an image
 ```
-unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_file_name]  --transform trans.hdf5 --warped_moving_out warped.nii.gz --linear
+unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_file_name] --transform trans.hdf5 --warped_moving_out warped.nii.gz --linear
 ```
 To warp a label map
 
 ```
-unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_segmentation_file_name]  --transform trans.hdf5 --warped_moving_out warped_seg.nii.gz --nearest_neighbor
+unigradicon-warp --fixed [fixed_image_file_name] --moving [moving_image_segmentation_file_name] --transform trans.hdf5 --warped_moving_out warped_seg.nii.gz --nearest_neighbor
 ```
 
 ### 👉 Inference via colab notebook
@@ -148,7 +148,6 @@ We provide a [colab notebook](https://colab.research.google.com/drive/1O4F0j_ZaR
 ### 👉 Inference via Slicer Extension
 
 A Slicer extension is available [here](https://github.com/uncbiag/SlicerUniGradICON?tab=readme-ov-file). It is an official Slicer Extension and can be installed via the Slicer Extension Manager. This requires Slicer >=5.7.0. Please make sure to install the Slicer PyTorch extension first, since uniGradICON depends on it.
-
 
 ## Training and testing data
 
@@ -195,7 +194,8 @@ A Slicer extension is available [here](https://github.com/uncbiag/SlicerUniGradI
         <td>578,888</td>
         <td>Inter-pat.</td>
         <td>MRI</td>
-    </tr>
+    </tr>r
+```
     <tr>
         <td>4.</td>
         <td>L2R-Abdomen</td>
