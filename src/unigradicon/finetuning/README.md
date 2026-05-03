@@ -15,11 +15,11 @@ This guide shows you how to finetune uniGradICON on your own datasets using conf
 
 ## Quick Start
 
-**Requirements:** GPU required (CUDA).
+**Requirements:** CUDA-capable GPU.
 
-**Install (PyPI or source):**
+**Install from PyPI or source:**
 - PyPI: `pip install unigradicon`
-- Dev/source: `pip install -e .` from the repo root
+- Development/source: `pip install -e .` from the repo root
 
 ```bash
 # Run with your config
@@ -36,7 +36,7 @@ This section walks through finetuning uniGradICON on three public [Learn2Reg](ht
 | Config | Dataset | Type | Modality | Similarity | Pretrained | Images |
 |--------|---------|------|----------|------------|------------|--------|
 | `l2r_oasis.yaml` | OASIS brain MRI | `unpaired` | MRI | lncc | uniGradICON | 414 |
-| `l2r_lungct.yaml` | LungCT | `paired` | CT | lncc | uniGradICON | 40 (20x2) |
+| `l2r_lungct.yaml` | LungCT | `paired` | CT | lncc | uniGradICON | 40 (20 x 2) |
 | `l2r_abdomenmrct.yaml` | AbdomenMRCT | `unpaired` | CT + MR | lncc2 | multiGradICON | 105 (48 CT + 57 MR) |
 | `l2r_multi.yaml` | All three combined | mixed | MRI + CT | lncc2 | multiGradICON | 559 |
 
@@ -99,7 +99,7 @@ Pick any of the provided configs:
 # Brain MRI (unpaired, 414 images)
 unigradicon-finetune --config configs/learn2reg/l2r_oasis.yaml
 
-# Lung CT (paired, 20 subjects x 2 timepoints)
+# Lung CT (paired, 20 subjects x 2 time points)
 unigradicon-finetune --config configs/learn2reg/l2r_lungct.yaml
 
 # Abdomen MRCT (105 CT+MR images with per-image modality, lncc2 + multiGradICON)
@@ -236,7 +236,7 @@ unigradicon-register \
 | `gpus` | list | GPU device IDs | [0] |
 | `epochs` | int | Training epochs | 500 |
 | `learning_rate` | float | Adam learning rate | 5e-5 |
-| `input_shape` | list | Model input dimensions [D,H,W] (images are resampled to this) | [175,175,175] |
+| `input_shape` | list | Model input dimensions [D, H, W] (images are resampled to this) | [175, 175, 175] |
 | `eval_period` | int | Validate every N epochs | 10 |
 | `save_period` | int | Save checkpoint every N epochs | 50 |
 | `seed` | int | Random seed for reproducibility | null |
@@ -272,7 +272,7 @@ unigradicon-register \
 | `cache_dir` | str | Directory for cached datasets | null |
 | `read_type` | str | Image reader: `"itk"` (NIfTI/NRRD) or `"dicom"` (DICOM series directories) | `"itk"` |
 | `shuffle` | bool | Shuffle image order before loading | true |
-| `is_ct` | bool | CT vs MRI preprocessing | false |
+| `is_ct` | bool | CT or MRI preprocessing | false |
 | `ct_window` | list | HU window for CT [min, max] | [-1000, 1000] |
 | `quantile_range` | list | Intensity quantile range for MRI | [0.0, 0.99] |
 
@@ -579,7 +579,7 @@ datasets:
     ct_window: [-1000, 1000]      # Applied to CT images
 ```
 
-If `modality` is not specified for an entry, the dataset-level `is_ct` setting is used as fallback.
+If `modality` is not specified for an entry, the dataset-level `is_ct` setting is used as the fallback.
 
 ## Troubleshooting
 
@@ -595,6 +595,6 @@ If `modality` is not specified for an entry, the dataset-level `is_ct` setting i
 - Keep weights positive to avoid invalid sampler behavior.
 
 ### Cache takes too much disk space
-- Set `use_cache: false`
-- Delete old caches: `rm results/*/*_cached_*.trch`
-- Use `maximum_images` to limit dataset size
+- Set `use_cache: false`.
+- Delete old caches: `rm results/*/*_cached_*.trch`.
+- Use `maximum_images` to limit dataset size.

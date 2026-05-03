@@ -40,6 +40,8 @@ def validate_config(config: Dict[str, Any]):
         unknown = set(config['training'].keys()) - VALID_TRAINING_KEYS
         if unknown:
             logger.warning(f"Unrecognized training keys (possible typo): {unknown}")
+        if 'learning_rate' in config['training']:
+            assert config['training']['learning_rate'] > 0
 
     for i, ds in enumerate(config['datasets']):
         for key in REQUIRED_DATASET_KEYS:
