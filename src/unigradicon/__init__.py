@@ -42,11 +42,15 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             assert self.identity_map.shape[2:] == label_B.shape[2:]
 
         if self.loss_function_masking:
-            assert mask_A is not None and mask_B is not None, \
-                "mask_A and mask_B must be provided when loss_function_masking=True"
+            if mask_A is None or mask_B is None:
+                raise ValueError(
+                    "mask_A and mask_B must be provided when loss_function_masking=True"
+                )
         if self.dice_loss_weight > 0.0:
-            assert segmentation_A is not None and segmentation_B is not None, \
-                "segmentation_A and segmentation_B must be provided when dice_loss_weight>0"
+            if segmentation_A is None or segmentation_B is None:
+                raise ValueError(
+                    "segmentation_A and segmentation_B must be provided when dice_loss_weight>0"
+                )
             unique_A = torch.unique(segmentation_A.long())
             unique_B = torch.unique(segmentation_B.long())
             common_classes = unique_A[torch.isin(unique_A, unique_B)]
@@ -54,14 +58,16 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             num_classes = len(common_classes)
 
             if num_classes == 0:
-                seg_A_one_hot = seg_B_one_hot = None
-            else:
-                max_class_id = int(torch.max(unique_A.max(), unique_B.max()).item())
-                remap = torch.zeros(max_class_id + 1, dtype=torch.long, device=segmentation_A.device)
-                remap[common_classes] = torch.arange(1, num_classes + 1, device=segmentation_A.device)
+                raise ValueError(
+                    "Dice loss requires at least one shared non-background segmentation class."
+                )
 
-                seg_A_one_hot = F.one_hot(remap[segmentation_A.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
-                seg_B_one_hot = F.one_hot(remap[segmentation_B.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
+            max_class_id = int(torch.max(unique_A.max(), unique_B.max()).item())
+            remap = torch.zeros(max_class_id + 1, dtype=torch.long, device=segmentation_A.device)
+            remap[common_classes] = torch.arange(1, num_classes + 1, device=segmentation_A.device)
+
+            seg_A_one_hot = F.one_hot(remap[segmentation_A.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
+            seg_B_one_hot = F.one_hot(remap[segmentation_B.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
 
         # Tag used elsewhere for optimization.
         # Must be set at beginning of forward b/c not preserved by .cuda() etc
@@ -113,7 +119,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             zero_boundary=True
         )
 
-        if self.dice_loss_weight > 0.0 and seg_A_one_hot is not None:
+        if self.dice_loss_weight > 0.0:
             self.warped_seg_A = compute_warped_image_multiNC(
                 seg_A_one_hot.float(),
                 self.phi_AB_vectorfield,
@@ -441,6 +447,11 @@ def preprocess(image, modality="ct", mask=None, ct_window=None, quantile_range=N
     else:
         raise ValueError(f"{modality} not recognized. Use 'ct' or 'mri'.")
 
+    if max_ <= min_:
+        raise ValueError(
+            "Invalid intensity normalization range: max must be greater than min."
+        )
+
     image = itk.shift_scale_image_filter(image, shift=-min_, scale = 1/(max_-min_))
 
     if mask is not None:
@@ -475,8 +486,8 @@ def main():
                         default=None, type=str, help="The path to save the warped image.")
     parser.add_argument("--io_iterations", required=False,
                          default="50", help="The number of IO iterations. Default is 50. Set to 'None' to disable IO.")
-    parser.add_argument("--io_lr", required=False, type=float, default=0.0002,
-                         help="The learning rate for instance optimization. Default is 0.0002.")
+    parser.add_argument("--io_lr", required=False, type=float, default=0.00002,
+                         help="The learning rate for instance optimization. Default is 0.00002.")
     parser.add_argument("--io_sim", required=False,
                          default="lncc", help="The similarity measure used in IO. Default is LNCC. Choose from [lncc, lncc2, mind].")
     parser.add_argument("--model", required=False,
