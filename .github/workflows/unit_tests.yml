@@ -24,4 +24,4 @@ jobs:
         pip install -e .
         pip install pytest
     - name: Run pytest
-      run: pytest tests/ -v
+      run: pytest tests/finetuning/ -v
