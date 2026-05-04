@@ -210,14 +210,14 @@ def test_dataset_segmentation_cache_round_trips(tmp_path, fake_image_reader, mon
 
 
 def test_dataset_compresses_in_memory_when_enabled(tmp_path, fake_image_reader):
-    """With ``use_compression=True`` the in-memory store holds blosc2 bytes,
+    """With ``use_compression=True`` the in-memory store holds blosc bytes,
     not torch tensors, so dataloading workers decompress lazily."""
     data = _make_data_files(tmp_path)
     ds = dataset.Dataset(input_shape=(8, 8, 8), name="foo", data=data,
                          cache_dir=str(tmp_path / "cache"), use_cache=True,
                          use_compression=True)
     sample = ds.store[ds.keys[0]][dataset.Fields.IMAGE]
-    assert isinstance(sample, bytes), f"expected blosc2 bytes, got {type(sample)}"
+    assert isinstance(sample, bytes), f"expected blosc bytes, got {type(sample)}"
 
 
 def test_dataset_skips_compression_by_default(tmp_path, fake_image_reader):

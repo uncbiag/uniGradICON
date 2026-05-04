@@ -268,7 +268,7 @@ unigradicon-register \
 | `weight` | float | Relative sampling weight | 1.0 |
 | `maximum_images` | int | Limit number of images | null |
 | `use_cache` | bool | Enable/disable caching | true |
-| `use_compression` | bool | Compress images in RAM and on disk with blosc2 (see [In-Memory Compression](#in-memory-compression)) | false |
+| `use_compression` | bool | Compress images in RAM and on disk with blosc (see [In-Memory Compression](#in-memory-compression)) | false |
 | `cache_dir` | str | Directory for cached datasets | null |
 | `shuffle` | bool | Shuffle image order before loading | true |
 | `is_ct` | bool | CT or MRI preprocessing | false |
@@ -561,7 +561,7 @@ datasets:
 
 ### In-Memory Compression
 
-`use_compression: true` stores preprocessed images and label maps as [blosc2](https://www.blosc.org/) bytes both on disk and in RAM; DataLoader workers decompress per sample.
+`use_compression: true` stores preprocessed images and label maps as [blosc](https://www.blosc.org/) bytes both on disk and in RAM; DataLoader workers decompress per sample.
 
 ```yaml
 datasets:

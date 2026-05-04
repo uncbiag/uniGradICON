@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 from torch.utils.data import Dataset as TorchDataset
 
-import blosc2
-blosc2.set_nthreads(1)
+import blosc
+blosc.set_nthreads(1)
 
 logger = logging.getLogger(__name__)
 
@@ -312,7 +312,7 @@ class Dataset(TorchDataset):
     ``DistributedSampler`` actually drive what's loaded; pair construction
     keeps its randomness via the partner draw.
 
-    When ``use_compression=True``, tensors are compressed with blosc2 at
+    When ``use_compression=True``, tensors are compressed with blosc at
     load time and decompressed lazily inside ``_build_pair`` so DataLoader
     workers each pay the per-sample decompression cost in parallel.
     """
@@ -545,12 +545,12 @@ class Dataset(TorchDataset):
 
     def _compress(self, tensor: torch.Tensor) -> Union[torch.Tensor, bytes]:
         if self.use_compression:
-            return blosc2.pack_array(tensor.detach().cpu().contiguous().numpy())
+            return blosc.pack_array(tensor.detach().cpu().contiguous().numpy())
         return tensor
 
     def _decompress(self, packed: Union[torch.Tensor, bytes]) -> torch.Tensor:
         if isinstance(packed, bytes):
-            return torch.from_numpy(blosc2.unpack_array(packed))
+            return torch.from_numpy(blosc.unpack_array(packed))
         return packed
 
     def get_image(self, key: str) -> torch.Tensor:
