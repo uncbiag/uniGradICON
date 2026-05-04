@@ -1,0 +1,32 @@
+experiment:
+  name: "multi_dataset_example"
+  model_weights: "unigradicon"  # Auto-downloads pretrained weights; or set to a local path
+
+training:
+  batch_size: 4
+  gpus: [0]
+  epochs: 100
+  eval_period: 10
+  save_period: 50
+  learning_rate: 0.00005
+  input_shape: [175, 175, 175]
+  similarity: "lncc"
+  lambda: 1.5
+  lncc_sigma: 5
+
+datasets:
+  # First dataset: MRI example
+  - name: "dataset_mri"
+    type: "unpaired"
+    json_file: "example_unpaired.json"
+    weight: 0.6  # 60% of batches will come from this dataset
+    is_ct: false
+    quantile_range: [0.0, 0.99]
+
+  # Second dataset: CT example (using same json for demo — replace with your actual CT dataset JSON)
+  - name: "dataset_ct"
+    type: "unpaired"
+    json_file: "example_unpaired.json"
+    weight: 0.4  # 40% of batches will come from this dataset
+    is_ct: true
+    ct_window: [-1000, 1000]

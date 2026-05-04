@@ -1,0 +1,24 @@
+experiment:
+  name: "l2r_oasis_brain_mri"
+  model_weights: "unigradicon"
+
+training:
+  batch_size: 2
+  gpus: [0]
+  epochs: 100
+  eval_period: 10
+  save_period: 50
+  learning_rate: 0.00005
+  input_shape: [175, 175, 175]
+  similarity: "lncc"
+  lambda: 1.5
+  lncc_sigma: 5
+  dice_loss_weight: 0.5
+
+datasets:
+  - name: "oasis_brain"
+    type: "unpaired"
+    json_file: "l2r_oasis.json"
+    weight: 1.0
+    is_ct: false
+    quantile_range: [0.0, 0.99]

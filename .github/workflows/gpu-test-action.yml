@@ -20,8 +20,8 @@ jobs:
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
-        
         pip install -e .
+        pip install pytest
 
     - name: fast test with unittest
       run: |
@@ -29,3 +29,6 @@ jobs:
     - name: GPU test with unittest
       run: |
         python -m unittest discover
+    - name: pytest finetuning suite
+      run: |
+        pytest tests/finetuning/ -v

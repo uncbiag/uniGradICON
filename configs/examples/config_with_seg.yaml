@@ -1,0 +1,25 @@
+experiment:
+  name: "example_seg_experiment"
+  model_weights: "unigradicon"  # Auto-downloads pretrained weights; or set to a local path
+
+training:
+  batch_size: 4
+  gpus: [0]
+  epochs: 100
+  eval_period: 10
+  save_period: 50
+  learning_rate: 0.00005
+  input_shape: [175, 175, 175]
+  similarity: "lncc"
+  lambda: 1.5
+  dice_loss_weight: 0.3
+  loss_function_masking: false
+  lncc_sigma: 5
+
+datasets:
+  - name: "example_seg_dataset"
+    type: "unpaired"
+    json_file: "example_seg.json"
+    weight: 1.0
+    is_ct: true
+    ct_window: [-1000, 1000]

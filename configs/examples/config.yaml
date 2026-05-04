@@ -1,0 +1,31 @@
+experiment:
+  name: "example_experiment"
+  model_weights: "unigradicon"  # Auto-downloads pretrained weights; or set to a local path
+
+training:
+  batch_size: 4
+  gpus: [0]
+  epochs: 100
+  eval_period: 10
+  save_period: 50
+  learning_rate: 0.00005
+  input_shape: [175, 175, 175]
+  similarity: "lncc"
+  lambda: 1.5
+  lncc_sigma: 5
+
+datasets:
+  - name: "example_dataset"
+    type: "unpaired"
+    json_file: "example_unpaired.json"
+    weight: 1.0 # Relative sampling weight
+    is_ct: false
+    quantile_range: [0.0, 0.99]
+
+  # Example of adding a second dataset (weights are relative):
+  # - name: "second_dataset"
+  #   type: "unpaired"
+  #   json_file: "another_dataset.json"
+  #   weight: 0.3
+  #   is_ct: true
+  #   ct_window: [-1000, 1000]

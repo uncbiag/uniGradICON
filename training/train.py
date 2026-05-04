@@ -8,8 +8,6 @@ import torch.nn.functional as F
 from dataset import COPDDataset, HCPDataset, OAIDataset, L2rAbdomenDataset
 from torch.utils.data import ConcatDataset, DataLoader
 
-import icon_registration as icon
-import icon_registration.networks as networks
 from icon_registration.losses import ICONLoss, to_floats
 
 from unigradicon import make_network

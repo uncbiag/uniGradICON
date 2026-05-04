@@ -1,0 +1,14 @@
+results/
+*.trch
+__pycache__/
+*.pyc
+*.pyo
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+.DS_Store
+Thumbs.db

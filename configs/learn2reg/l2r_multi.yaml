@@ -1,0 +1,35 @@
+experiment:
+  name: "l2r_multi_dataset"
+  model_weights: "multigradicon"
+
+training:
+  batch_size: 2
+  gpus: [0]
+  epochs: 100
+  eval_period: 10
+  save_period: 50
+  learning_rate: 0.00005
+  input_shape: [175, 175, 175]
+  similarity: "lncc2"
+  lambda: 1.5
+  lncc_sigma: 5
+
+datasets:
+  - name: "oasis_brain"
+    type: "unpaired"
+    json_file: "l2r_oasis.json"
+    weight: 1.0
+    is_ct: false
+    quantile_range: [0.0, 0.99]
+
+  - name: "lungct"
+    type: "paired"
+    json_file: "l2r_lungct.json"
+    weight: 1.0
+    is_ct: true
+    ct_window: [-1000, 1000]
+
+  - name: "abdomen_mrct"
+    type: "unpaired"
+    json_file: "l2r_abdomenmrct.json"
+    weight: 1.0
