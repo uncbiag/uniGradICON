@@ -296,9 +296,18 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         return dice_loss
     
     def clean(self):
-        del self.phi_AB, self.phi_BA, self.phi_AB_vectorfield, self.phi_BA_vectorfield, self.warped_image_A, self.warped_image_B
+        # Under DataParallel the forward pass sets these attributes on
+        # replicas, not on the wrapped module — so the original may not have
+        # them. Guard each delete so multi-GPU training doesn't AttributeError.
+        for _attr in ("phi_AB", "phi_BA",
+                      "phi_AB_vectorfield", "phi_BA_vectorfield",
+                      "warped_image_A", "warped_image_B"):
+            if hasattr(self, _attr):
+                delattr(self, _attr)
         if self.use_label:
-            del self.warped_label_A, self.warped_label_B
+            for _attr in ("warped_label_A", "warped_label_B"):
+                if hasattr(self, _attr):
+                    delattr(self, _attr)
         if hasattr(self, 'warped_seg_A'):
             del self.warped_seg_A
         if hasattr(self, 'warped_seg_B'):

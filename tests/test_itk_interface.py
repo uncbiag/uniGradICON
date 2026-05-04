@@ -227,6 +227,24 @@ class TestItkInterface(unittest.TestCase):
         )
         assert isinstance(phi_AB, itk.CompositeTransform)
 
+    def test_register_pair_with_mask_images_only(self):
+        """``register_pair_with_mask`` with no mask or segmentation kwargs
+        must still work — the function falls through to the same model call
+        ``register_pair`` would make."""
+        net = get_model_from_model_zoo("unigradicon", make_sim("lncc"))
+
+        image_exp = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_EXP_STD_COPD_img.nii.gz"))
+        image_insp = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_INSP_STD_COPD_img.nii.gz"))
+
+        phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(
+            net,
+            preprocess(image_insp, "ct"),
+            preprocess(image_exp, "ct"),
+            finetune_steps=2,
+        )
+        assert isinstance(phi_AB, itk.CompositeTransform)
+        assert isinstance(phi_BA, itk.CompositeTransform)
+
     def test_itk_warp(self):
         fixed_path = f"{self.test_data_dir}/brain_test_data/8_T1w_acpc_dc_restore_brain.nii.gz"
         moving_path = f"{self.test_data_dir}/brain_test_data/2_T1w_acpc_dc_restore_brain.nii.gz"

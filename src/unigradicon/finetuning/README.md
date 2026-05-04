@@ -12,10 +12,11 @@ This guide shows you how to finetune uniGradICON on your own datasets using conf
 - [Segmentation, Masking, and Dice Loss](#segmentation-masking-and-dice-loss)
 - [Label Randomization](#label-randomization-use_label)
 - [Advanced Features](#advanced-features)
+- [Troubleshooting](#troubleshooting)
 
 ## Quick Start
 
-**Requirements:** CUDA-capable GPU.
+**Recommended:** CUDA-capable GPU. CPU technically works but is too slow for any real training run.
 
 **Install from PyPI or source:**
 - PyPI: `pip install unigradicon`
@@ -44,10 +45,7 @@ Cross-modality datasets (AbdomenMRCT) use per-image `"modality"` fields in the J
 
 ### 1. Install uniGradICON
 
-```bash
-pip install unigradicon
-# or from source: pip install -e .
-```
+See [Quick Start](#quick-start).
 
 ### 2. Download the datasets
 
@@ -128,7 +126,7 @@ unigradicon-register \
 
 ### Step 1: Prepare Your Data
 
-Organize your data and create a JSON file. The JSON format uses a `data` list where each entry has an `image` path and optional fields for segmentations and masks:
+Organize your NIfTI data and create a JSON file. The JSON format uses a `data` list where each entry has an `image` path and optional fields for segmentations and masks:
 
 ```json
 {
@@ -139,7 +137,7 @@ Organize your data and create a JSON file. The JSON format uses a `data` list wh
 }
 ```
 
-All datasets require at least 2 images. Paired datasets need at least 2 images per subject. Paths can be absolute or relative to the JSON file's directory. See [JSON Data Fields](#json-data-fields) for all supported fields.
+All datasets require at least 2 images. Paired datasets need at least 2 images per subject. Image, segmentation, and mask paths should point to NIfTI/ITK-readable image files. Paths can be absolute or relative to the JSON file's directory. See [JSON Data Fields](#json-data-fields) for all supported fields.
 
 ### Step 2: Create a Configuration File
 
@@ -185,11 +183,12 @@ unigradicon-finetune --config configs/my_config.yaml
 ### Step 4: Monitor Training
 
 Training progress is logged to TensorBoard. Validation writes scalar losses plus image panels
-(moving/fixed/warped/difference), and segmentation panels when segmentation data is available:
+(moving/fixed/warped/difference), segmentation overlay panels when segmentation data is available,
+and mask overlay panels when mask data is available:
 
 ```bash
 # Footsteps stores runs in results/<experiment.name>/logs/<timestamp>
-tensorboard --logdir="results/"
+tensorboard --logdir results/
 ```
 
 ### Step 5: Use Your Finetuned Model
@@ -214,7 +213,7 @@ unigradicon-register \
 
 The default preprocessing parameters match between finetuning and inference, so no extra flags are needed if you use the defaults. If you customize `quantile_range` or `ct_window` in your finetuning config, pass the same values at inference time.
 
-**Note:** The finetuning `modality` field accepts any string (e.g., `"t1"`, `"flair"`) where only `"ct"` triggers CT preprocessing. The CLI `--fixed_modality` / `--moving_modality` flags accept `"ct"` or `"mri"` only. Use `--fixed_modality mri` for any non-CT modality at inference.
+**Note:** The finetuning `modality` field accepts any string (e.g., `"t1"`, `"flair"`); any value matching `"ct"` (case-insensitive) triggers CT preprocessing, all others use MRI. The CLI `--fixed_modality` / `--moving_modality` flags accept `"ct"` or `"mri"` only. Use `--fixed_modality mri` for any non-CT modality at inference.
 
 ```bash
 # Example: custom ct_window used during finetuning
@@ -249,7 +248,7 @@ unigradicon-register \
 | `lncc_sigma` | int | Sigma for LNCC / SquaredLNCC similarity | 5 |
 | `mind_radius` | int | Radius for MIND-SSC similarity | 2 |
 | `mind_dilation` | int | Dilation for MIND-SSC similarity | 2 |
-| `samples_per_epoch` | int | Samples per epoch (optional) | total dataset size |
+| `samples_per_epoch` | int | Number of samples drawn per epoch (with replacement); null defaults to the combined dataset size | null |
 | `num_workers` | int | DataLoader worker processes | 4 |
 
 ### Input Shape Guidance
@@ -269,14 +268,15 @@ unigradicon-register \
 | `weight` | float | Relative sampling weight | 1.0 |
 | `maximum_images` | int | Limit number of images | null |
 | `use_cache` | bool | Enable/disable caching | true |
+| `use_compression` | bool | Compress images in RAM and on disk with blosc2 (see [In-Memory Compression](#in-memory-compression)) | false |
 | `cache_dir` | str | Directory for cached datasets | null |
-| `read_type` | str | Image reader: `"itk"` (NIfTI/NRRD) or `"dicom"` (DICOM series directories) | `"itk"` |
 | `shuffle` | bool | Shuffle image order before loading | true |
 | `is_ct` | bool | CT or MRI preprocessing | false |
 | `ct_window` | list | HU window for CT [min, max] | [-1000, 1000] |
 | `quantile_range` | list | Intensity quantile range for MRI | [0.0, 0.99] |
 
 `json_file` paths are resolved relative to the YAML config file's directory, so you can usually reference just the filename.
+Images, segmentations, and masks should be NIfTI files readable by ITK.
 
 ## Dataset Types
 
@@ -306,12 +306,12 @@ datasets:
 
 ## JSON Data Fields
 
-Each JSON dataset file has a `data` list where each entry contains an `image` path and optional fields. The training configuration determines which optional fields are required and loaded:
+Each JSON dataset file has a `data` list where each entry contains an `image` path and optional fields. The training configuration determines which optional fields are required:
 
 - `dice_loss_weight > 0` requires `segmentation`
 - `loss_function_masking: true` or `roi_masking: true` requires `mask`
 
-Optional fields that are present in JSON but not required by the current training configuration are ignored.
+Fields that are present in JSON but not required by the current training configuration are ignored.
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -319,9 +319,9 @@ Optional fields that are present in JSON but not required by the current trainin
 | `segmentation` | No | Path to integer label map for Dice loss |
 | `mask` | No | Path to binary ROI mask for loss masking / image cropping |
 | `subject_id` | No | Subject identifier (required for `paired` type) |
-| `modality` | No | Per-image modality (e.g., `"ct"`, `"t1"`, `"t2"`, `"flair"`). `"ct"` uses CT preprocessing, all others use MRI. Also used for label randomization grouping. |
+| `modality` | No | Per-image modality (e.g., `"ct"`, `"t1"`, `"t2"`, `"flair"`). Any value matching `"ct"` (case-insensitive) uses CT preprocessing; all other values use MRI. Also used for label randomization grouping. |
 
-**Consistency rule:** Every dataset entry in every dataset must provide the optional fields required by the training configuration. This ensures training stability, and the loss function composition is consistent across all batches.
+**Consistency rule:** Every dataset entry in every dataset must provide the optional fields required by the training configuration so the loss function composition is consistent across all batches.
 
 If required fields are missing, config validation fails before training starts with a clear error listing the dataset and entry index.
 
@@ -496,16 +496,37 @@ experiment:
   model_weights: "/path/to/my/weights.trch"  # Use custom weights
 ```
 
-### Resume Training
+### Warm-Start From a Checkpoint
 
-The system automatically detects if you're resuming from a checkpoint:
+Pointing `model_weights` at a saved network checkpoint loads the network state at the start of the run:
 
 ```yaml
 experiment:
   model_weights: "results/my_experiment/checkpoints/network_weights_50.trch"
 ```
 
-If `optimizer_weights_50.trch` exists, training resumes with optimizer state. Otherwise, it starts fresh with the model weights.
+If a sibling `optimizer_weights_50.trch` exists in the same directory, the optimizer state is loaded too; otherwise the optimizer initializes from scratch.
+
+This is a **warm start**, not a true resume:
+
+- Epoch and iteration counters restart from 0.
+- TensorBoard logs go to a new run directory (no continuation of curves).
+- Set `epochs` to the *additional* number of epochs you want to train, not the original target epoch.
+
+Example: to train 50 more epochs after `network_weights_50.trch`, set `epochs: 50` (not `100`).
+
+### Reproducibility (`seed`)
+
+```yaml
+training:
+  seed: 42
+```
+
+Seeds Python `random`, NumPy, and PyTorch (CPU and GPU) at startup, and seeds each DataLoader worker. With the same seed, the sampler index sequence is reproducible across runs and the `maximum_images` subset is stable (paths are sorted first, then the first `maximum_images` entries are taken before optional shuffling).
+
+The seed does **not** guarantee identical batches end-to-end. Augmentation and image-pair sampling use Python `random`, which is shared between the train and validation loops in the parent process and forked into each DataLoader worker. With `num_workers > 0` the order in which workers return batches depends on OS scheduling, so per-batch contents will vary even when each worker is individually deterministic.
+
+**Not bit-exact on GPU.** Some CUDA ops are non-deterministic by default, so loss values still drift slightly run-to-run. For exact reproducibility, set `cudnn.deterministic=True`, `cudnn.benchmark=False`, and `torch.use_deterministic_algorithms(True)` in your own entry point; expect a runtime cost.
 
 ### Control Samples Per Epoch
 
@@ -513,10 +534,10 @@ For large datasets or faster testing:
 
 ```yaml
 training:
-  samples_per_epoch: 4000  # Process 4000 samples per epoch
+  samples_per_epoch: 4000  # Draw 4000 samples per epoch
 ```
 
-Without this parameter, all dataset samples are used each epoch.
+Sampling is with replacement: setting a value larger than the combined dataset size draws more samples per epoch (some entries seen multiple times); a smaller value draws fewer (some entries skipped). When unset, defaults to the combined dataset size.
 
 ### Disable Caching
 
@@ -530,7 +551,25 @@ datasets:
     use_cache: false  # Reload images every time
 ```
 
-**Default:** Caching is enabled. Cached data is stored in the experiment's output directory, or in `cache_dir` if specified in the dataset config.
+**Default:** Caching is enabled. Cached data is stored under `<cache_dir>/<signature>/` (or `<results/experiment>/<signature>/` if `cache_dir` is unset). The signature is a hash of every parameter that can change the cached tensors: `dataset_name`, `input_shape`, `is_ct`, `ct_window`, `quantile_range`, per-image `modality` map, `maximum_images`, `use_compression`, and a fingerprint of the JSON entries. Changing any of these (including editing the JSON entry list) yields a new signature and a fresh cache build. Each signature directory contains one `.trch` file per cache kind (`<dataset>_cached_images.trch`, plus `_segmentations.trch` / `_masks.trch` when those are required) and a `_meta.json` sidecar describing the parameters behind the hash.
+
+**Concurrent jobs with a shared `cache_dir`:** caching is intended for serial use. Running multiple finetune jobs in parallel that point at the same `cache_dir` is not a supported workflow. Concurrent writers can race on the cache file and a reader may observe a partial write. If you need to run multiple jobs at once:
+
+- give each job its own `cache_dir` (e.g. `cache_dir: /path/cache_jobA`, `cache_dir: /path/cache_jobB`), or
+- pre-build the cache by running one job to completion first, then launch the rest with the same config (later jobs read-only from the warm cache), or
+- set `use_cache: false` for the parallel jobs and accept the per-run preprocessing cost.
+
+### In-Memory Compression
+
+`use_compression: true` stores preprocessed images and label maps as [blosc2](https://www.blosc.org/) bytes both on disk and in RAM; DataLoader workers decompress per sample.
+
+```yaml
+datasets:
+  - name: "large_3d_dataset"
+    use_compression: true
+```
+
+Default is `false`. Enable it when the uncompressed dataset does not fit in host RAM. `use_compression` is part of the cache signature, so toggling triggers a fresh build.
 
 ### CT vs MRI Preprocessing
 
@@ -554,7 +593,7 @@ To use the same preprocessing at inference time, see [Matching Preprocessing Bet
 
 ### Mixed Modality Datasets
 
-When a dataset contains both CT and MRI images (e.g., cross-modality registration), add a `modality` field to each entry in the JSON file. Images with `modality: "ct"` use CT windowing; all other modality values use MRI quantile normalization:
+When a dataset contains both CT and MRI images (e.g., cross-modality registration), add a `modality` field to each entry in the JSON file. Any value matching `"ct"` (case-insensitive) uses CT windowing; all other modality values use MRI quantile normalization:
 
 ```json
 {
@@ -584,11 +623,14 @@ If `modality` is not specified for an entry, the dataset-level `is_ct` setting i
 ## Troubleshooting
 
 ### "JSON file not found"
-- Check that your `json_file` path is correct and accessible.
-- Use absolute paths to avoid confusion.
+- Verify the path resolves correctly. Relative paths in `json_file` are resolved against the YAML config file's directory, so a config at `configs/foo.yaml` referencing `data.json` looks for `configs/data.json`.
+- Use an absolute path if the config and data live in unrelated directories.
 
-### "Data must be provided"
-- Ensure your JSON file contains the top-level `data` key.
+### "must contain top-level 'data' key"
+- The JSON file is missing the wrapping `{"data": [...]}` object. Wrap your entry list under a `"data"` key.
+
+### "'data' must be provided"
+- The JSON file's `data` list is empty after path resolution. Make sure at least one entry is present and that all `image` paths resolve to existing files.
 
 ### Weights are relative
 - Sampler treats weights as relative multipliers; they do not need to sum to 1.0.
@@ -596,5 +638,5 @@ If `modality` is not specified for an entry, the dataset-level `is_ct` setting i
 
 ### Cache takes too much disk space
 - Set `use_cache: false`.
-- Delete old caches: `rm results/*/*_cached_*.trch`.
+- Delete old caches: remove the signature subdirectory under your `cache_dir` (or `rm -rf results/<experiment>/<signature>/`). Each signature directory contains the `.trch` files plus its `_meta.json`.
 - Use `maximum_images` to limit dataset size.
