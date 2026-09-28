@@ -239,6 +239,8 @@ unigradicon-register \
 | `eval_period` | int | Validate every N epochs | 10 |
 | `save_period` | int | Save checkpoint every N epochs | 50 |
 | `seed` | int | Random seed for reproducibility | null |
+| `random_flips` | bool | Apply random axis flips during augmentation | true |
+| `random_axis_permutations` | bool | Randomly swap spatial axes during augmentation | true |
 | `lambda` | float | Regularization weight | 1.5 |
 | `similarity` | str | Loss function: "lncc", "lncc2", "mind" | "lncc" |
 | `dice_loss_weight` | float | Dice loss weight (requires `segmentation` in JSON) | 0.0 |

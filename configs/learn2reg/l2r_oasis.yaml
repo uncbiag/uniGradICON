@@ -3,6 +3,8 @@ experiment:
   model_weights: "unigradicon"
 
 training:
+  random_flips: false
+  random_axis_permutations: false
   batch_size: 2
   gpus: [0]
   epochs: 100

@@ -58,6 +58,8 @@ class TrainingKeys:
     DICE_LOSS_WEIGHT = 'dice_loss_weight'
     LOSS_FUNCTION_MASKING = 'loss_function_masking'
     ROI_MASKING = 'roi_masking'
+    RANDOM_FLIPS = 'random_flips'
+    RANDOM_AXIS_PERMUTATIONS = 'random_axis_permutations'
     USE_LABEL = 'use_label'
     LNCC_SIGMA = 'lncc_sigma'
     MIND_RADIUS = 'mind_radius'
@@ -163,6 +165,8 @@ class TrainingConfig:
     dice_loss_weight: float = 0.0
     loss_function_masking: bool = False
     roi_masking: bool = False
+    random_flips: bool = True
+    random_axis_permutations: bool = True
     seed: Optional[int] = None
 
     @classmethod
@@ -270,6 +274,9 @@ class ConfigValidator:
         unknown = set(train_config.keys()) - VALID_TRAINING_KEYS
         if unknown:
             logger.warning(f"Unrecognized training keys (possible typos): {sorted(unknown)}.")
+        for key in (TrainingKeys.RANDOM_FLIPS, TrainingKeys.RANDOM_AXIS_PERMUTATIONS):
+            if key in train_config and not isinstance(train_config[key], bool):
+                raise ValueError(f"'{key}' must be a boolean (true or false)")
         if TrainingKeys.LEARNING_RATE in train_config and train_config[TrainingKeys.LEARNING_RATE] <= 0:
             raise ValueError(f"'{TrainingKeys.LEARNING_RATE}' must be positive")
         for positive_key in (TrainingKeys.EVAL_PERIOD, TrainingKeys.SAVE_PERIOD,

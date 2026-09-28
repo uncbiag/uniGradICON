@@ -3,6 +3,8 @@ experiment:
   model_weights: "unigradicon"  # Auto-downloads pretrained weights; or set to a local path
 
 training:
+  random_flips: false
+  random_axis_permutations: false
   batch_size: 4
   gpus: [0]
   epochs: 100

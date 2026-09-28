@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, FrozenSet, List, Optional
 from torch.utils.tensorboard import SummaryWriter
 from icon_registration.losses import to_floats
+from icon_registration.mermaidlite import compute_warped_image_multiNC
 import unigradicon
 from icon_registration import config as icon_config
 from .config import (
@@ -47,7 +48,11 @@ def _affine_warp(image: torch.Tensor, forward: torch.Tensor, mode: str = "biline
     )
 
 
-def augment(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+def augment(
+    batch: Dict[str, torch.Tensor],
+    random_flips: bool = True,
+    random_axis_permutations: bool = True,
+) -> Dict[str, torch.Tensor]:
     """Apply random affine augmentation to all spatial data in a batch dict.
 
     Images are warped with bilinear interpolation; segmentations and masks
@@ -55,6 +60,7 @@ def augment(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
 
     Both images share the same random flip/permutation but have slightly
     different affine noise, so they share orientation but differ in detail.
+    Flips and axis permutations can be disabled independently; affine noise remains.
     """
     device = batch[PairKeys.IMAGE_A].device
     batch_size = batch[PairKeys.IMAGE_A].shape[0]
@@ -62,12 +68,16 @@ def augment(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     identity_list = []
     for _ in range(batch_size):
         identity = torch.zeros((1, 3, 4), dtype=torch.float32, device=device)
-        idxs = {0, 1, 2}
-        for j in range(3):
-            k = random.choice(list(idxs))
-            idxs.remove(k)
-            identity[0, j, k] = 1
-        identity = identity * (torch.randint_like(identity, 0, 2) * 2 - 1)
+        if random_axis_permutations:
+            remaining_axes = {0, 1, 2}
+            for axis in range(3):
+                source_axis = random.choice(list(remaining_axes))
+                remaining_axes.remove(source_axis)
+                identity[0, axis, source_axis] = 1
+        else:
+            identity[0, :, :3] = torch.eye(3, device=device)
+        if random_flips:
+            identity = identity * (torch.randint_like(identity, 0, 2) * 2 - 1)
         identity_list.append(identity)
     identity = torch.cat(identity_list)
 
@@ -158,6 +168,7 @@ def _build_optimizer(
     same module whose ``state_dict`` is saved/loaded for checkpoints. This keeps
     parameter ordering stable regardless of whether the network is wrapped in
     DataParallel, which makes single-GPU ↔ multi-GPU resumes safe.
+    The configured learning rate always takes precedence over checkpoint values.
     """
     optimizer = torch.optim.Adam(net.regis_net.parameters(), lr=learning_rate)
     if model_weights is None:
@@ -168,6 +179,8 @@ def _build_optimizer(
     if os.path.exists(optimizer_path):
         logger.info(f"Resuming optimizer state from {optimizer_path}.")
         optimizer.load_state_dict(torch.load(optimizer_path, map_location="cpu", weights_only=False))
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = learning_rate
     else:
         logger.info(f"Optimizer state not found at {optimizer_path}; initializing optimizer from scratch.")
     return optimizer
@@ -215,7 +228,11 @@ def _train_one_batch(
 ) -> Dict[str, float]:
     batch = {key: value.to(device) for key, value in batch.items()}
     with torch.no_grad():
-        batch = augment(batch)
+        batch = augment(
+            batch,
+            random_flips=settings.random_flips,
+            random_axis_permutations=settings.random_axis_permutations,
+        )
 
     if settings.roi_masking:
         _apply_roi_masking(batch)
@@ -283,8 +300,14 @@ def _write_eval_visualizations(
     has_mask = Fields.MASK in data_fields
 
     warped_seg = None
-    if has_seg and settings.dice_loss_weight > 0.0 and hasattr(net, "warped_seg_A"):
-        warped_seg = net.warped_seg_A
+    if has_seg and settings.dice_loss_weight > 0.0:
+        warped_seg = compute_warped_image_multiNC(
+            val_batch[PairKeys.SEGMENTATION_A].float(),
+            net.phi_AB_vectorfield,
+            net.spacing,
+            spline_order=0,
+            zero_boundary=True,
+        )
 
     add_eval_composite_panel(
         writer,
