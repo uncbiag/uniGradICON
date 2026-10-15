@@ -83,6 +83,10 @@ To apply loss function masking using the provided masks in the IO:
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_mask=[fixed_image_mask_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_mask=[moving_image_mask_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --loss_function_masking
 ```
 
+Masks must be on the same voxel grid as their image and saved in the same format, for example both as NIfTI.
+
+As in 1.0.5, segmentations are still used as masks when no masks and no Dice loss are given. This is deprecated, so please use `--fixed_mask` and `--moving_mask` instead.
+
 Intensity conservation loss ensures proper intensity adjustments for registration tasks requiring mass conservation, utilizing the change of variables rule from integration. To be effective, images must be in an intensity space where conservation holds. This loss function is specifically valid for CT modality, where -1000 HU represents air. To apply determinant-based intensity correction during registration in the IO:
 ```
 unigradicon-register --fixed=[fixed_ct_file_name] --fixed_modality=ct --moving=[moving_ct_file_name] --moving_modality=ct --transform_out=trans.hdf5 --warped_moving_out=warped_ct.nii.gz --io_iterations 50 --io_sim lncc2 --intensity_conservation_loss
@@ -93,14 +97,12 @@ To apply Dice loss using the provided segmentations in the IO (both segmentation
 unigradicon-register --fixed=RegLib_C01_2.nrrd --fixed_modality=mri --fixed_segmentation=[fixed_image_segmentation_file_name] --moving=RegLib_C01_1.nrrd --moving_modality=mri --moving_segmentation=[moving_image_segmentation_file_name] --transform_out=trans.hdf5 --warped_moving_out=warped_C01_1.nrrd --io_iterations 50 --io_sim lncc2 --dice_loss_weight 0.1
 ```
 
-As in 1.0.5, segmentations are still used as masks when no masks and no Dice loss are given. This is deprecated, so please use `--fixed_mask` and `--moving_mask` instead.
-
 To finetune on your own data, see the [finetuning guide](./src/unigradicon/finetuning/README.md).
 ```
 unigradicon-finetune --config /path/to/config.yaml
 ```
 
-To use custom network weights, for example after [finetuning](./src/unigradicon/finetuning/README.md)
+To use custom network weights, for example after finetuning
 ```
 unigradicon-register --fixed=fixed.nii.gz --fixed_modality=mri --moving=moving.nii.gz --moving_modality=mri --transform_out=trans.hdf5 --warped_moving_out=warped.nii.gz --network_weights /path/to/network_weights_final.trch
 ```

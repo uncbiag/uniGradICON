@@ -21,7 +21,7 @@ def test_training_config_unknown_keys_silently_dropped_in_from_dict():
 def test_training_config_defaults_when_empty_dict():
     tc = config.TrainingConfig.from_dict({})
     assert tc.batch_size == 4
-    assert tc.epochs == 500
+    assert tc.epochs == 100
     assert tc.lmbda == 1.5
 
 

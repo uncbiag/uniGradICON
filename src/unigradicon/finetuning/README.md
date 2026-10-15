@@ -18,7 +18,7 @@ This guide shows how to finetune uniGradICON or multiGradICON on your own data w
 
 ## Quick Start
 
-Install the package with `pip install unigradicon`, or with `pip install -e .` from a clone of the repository. A CUDA GPU is strongly recommended, since training on a CPU is very slow.
+Install the package with `pip install unigradicon`, or with `pip install -e .` from a clone of the repository.
 
 Finetuning needs two small files. A JSON file lists your images, and a YAML config file sets the training options and points to the JSON file. A minimal pair looks like this
 
@@ -58,7 +58,7 @@ The finetuned weights are saved in `results/my_experiment/checkpoints/`. The [St
 
 ### 1. Prepare Your Data
 
-Create a JSON file that lists your images, one entry per image.
+Create a JSON file, for example `my_data.json`, that lists your images, one entry per image.
 
 ```json
 {
@@ -71,15 +71,15 @@ Create a JSON file that lists your images, one entry per image.
 }
 ```
 
-Paths can be absolute or relative to the JSON file, and any format ITK reads works, such as NIfTI. You need at least two images, or at least two per subject for `paired` datasets.
+Paths can be absolute or relative to the JSON file. Any image format that ITK can read works, such as NIfTI. You need at least two images, or at least two per subject for `paired` datasets.
 
 ### 2. Create a Configuration File
 
-Create a YAML file (e.g., `my_config.yaml`):
+Create a YAML file, for example `my_config.yaml`.
 
 ```yaml
 experiment:
-  name: "my_finetuning_experiment"
+  name: "my_experiment"
   model_weights: "unigradicon"  # Auto-downloads if not found
 
 training:
@@ -98,10 +98,10 @@ training:
   lncc_sigma: 5  # For LNCC losses
 
 datasets:
-  - name: "my_dataset"
+  - name: "my_data"
     weight: 1.0  # Relative sampling weight (any positive value)
     type: "unpaired"  # "unpaired" or "paired"
-    json_file: "my_dataset.json"
+    json_file: "my_data.json"
     is_ct: false  # Set to true for CT images
     quantile_range: [0.0, 0.99]  # For MRI normalization
 ```
@@ -118,7 +118,7 @@ unigradicon-finetune --config my_config.yaml
 
 ### 4. Monitor Training
 
-Losses and example registrations are logged to TensorBoard, with segmentation and mask overlays when your data has them. Validation always uses the same four pairs from each dataset, so its curves and images can be compared across epochs.
+Losses and example registrations are logged to TensorBoard, with segmentation and mask overlays when your data has them. Validation always uses up to four fixed pairs from each dataset, so its curves and images can be compared across epochs.
 
 ```bash
 # Logs are written to results/<experiment.name>/logs/
@@ -133,7 +133,7 @@ After training, use your model weights for inference:
 
 ```bash
 # Your weights are saved in results/<experiment.name>/checkpoints/
-ls results/my_finetuning_experiment/checkpoints/
+ls results/my_experiment/checkpoints/
 
 # Use with uniGradICON CLI
 unigradicon-register \
@@ -142,7 +142,7 @@ unigradicon-register \
   --fixed_modality mri --moving_modality mri \
   --transform_out transform.hdf5 \
   --warped_moving_out warped.nii.gz \
-  --network_weights results/my_finetuning_experiment/checkpoints/network_weights_final.trch
+  --network_weights results/my_experiment/checkpoints/network_weights_final.trch
 ```
 
 
@@ -165,7 +165,7 @@ The repository's `configs/examples/` folder has starting points for common setup
 
 ## Example with Learn2Reg Data
 
-This section walks through finetuning uniGradICON on three public [Learn2Reg](https://learn2reg.grand-challenge.org/) datasets. Ready-to-use configs for each dataset and for multi-dataset training are in `configs/learn2reg/`, and `scripts/prepare_l2r_datasets.py` generates the JSON files they read. Both are in the GitHub repository, not in the pip package, so run these steps from a clone of the repo.
+This section walks through finetuning uniGradICON and multiGradICON on three public [Learn2Reg](https://learn2reg.grand-challenge.org/) datasets. Ready-to-use configs for each dataset and for multi-dataset training are in `configs/learn2reg/`, and `scripts/prepare_l2r_datasets.py` generates the JSON files they read. Both are in the GitHub repository, not in the pip package, so run these steps from a clone of the repo.
 
 
 | Config                 | Dataset            | Type       | Modality | Similarity | Pretrained    | Images              |
@@ -182,7 +182,7 @@ This section walks through finetuning uniGradICON on three public [Learn2Reg](ht
 
 See [Quick Start](#quick-start).
 
-### 2. Download the datasets
+### 2. Download the Datasets
 
 Download the **training splits** from the [Learn2Reg Datasets page](https://learn2reg.grand-challenge.org/Datasets/) (requires a free Grand Challenge account):
 
@@ -192,7 +192,7 @@ Download the **training splits** from the [Learn2Reg Datasets page](https://lear
 
 
 
-### 3. Extract into a `datasets/` directory
+### 3. Extract into a `datasets/` Folder
 
 ```bash
 mkdir -p datasets
@@ -221,7 +221,7 @@ datasets/
 
 
 
-### 4. Generate JSON dataset files
+### 4. Generate the JSON Files
 
 ```bash
 python scripts/prepare_l2r_datasets.py --data_dir datasets/
@@ -229,7 +229,7 @@ python scripts/prepare_l2r_datasets.py --data_dir datasets/
 
 This scans the extracted data and creates JSON files (`l2r_oasis.json`, `l2r_lungct.json`, `l2r_abdomenmrct.json`) in `configs/learn2reg/`. You only need to run this once.
 
-### 5. Start finetuning
+### 5. Start Finetuning
 
 Pick any of the provided configs:
 
@@ -249,7 +249,7 @@ unigradicon-finetune --config configs/learn2reg/l2r_multi.yaml
 
 
 
-### 6. Monitor and use results
+### 6. Monitor and Use the Results
 
 ```bash
 # Monitor training
@@ -267,7 +267,7 @@ unigradicon-register \
 
 ## Preparing Your Data
 
-This part explains how image pairs are formed, what the JSON files can contain, and how CT and MRI images are preprocessed.
+This section explains how image pairs are formed, what the JSON files can contain, and how CT and MRI images are preprocessed.
 
 ### Dataset Types
 
@@ -363,7 +363,7 @@ datasets:
     ct_window: [-1000, 1000]      # Applied to CT images
 ```
 
-If `modality` is not specified for an entry, the dataset-level `is_ct` setting is used as the fallback.
+If `modality` is not specified for an entry, the dataset-level `is_ct` setting is used instead.
 
 ### Matching Preprocessing at Inference
 
@@ -392,7 +392,7 @@ The tables below list every setting in the YAML config with its default, followe
 | -------------------------- | ----- | ------------------------------------------------------------------------------------------------ | --------------- |
 | `batch_size`               | int   | Registration pairs per GPU                                                                       | 4               |
 | `gpus`                     | list  | GPU device IDs                                                                                   | [0]             |
-| `epochs`                   | int   | Training epochs                                                                                  | 500             |
+| `epochs`                   | int   | Training epochs                                                                                  | 100             |
 | `learning_rate`            | float | Adam learning rate                                                                               | 5e-5            |
 | `input_shape`              | list  | Model input dimensions [D, H, W] (images are resampled to this)                                  | [175, 175, 175] |
 | `eval_period`              | int   | Validate every N epochs                                                                          | 10              |
@@ -401,7 +401,7 @@ The tables below list every setting in the YAML config with its default, followe
 | `random_flips`             | bool  | Apply random axis flips during augmentation                                                      | true            |
 | `random_axis_permutations` | bool  | Randomly swap spatial axes during augmentation                                                   | true            |
 | `lambda`                   | float | Regularization weight                                                                            | 1.5             |
-| `similarity`               | str   | Loss function: "lncc", "lncc2", "mind"                                                           | "lncc"          |
+| `similarity`               | str   | Similarity measure: "lncc", "lncc2", "mind"                                                      | "lncc"          |
 | `dice_loss_weight`         | float | Dice loss weight (requires `segmentation` in JSON)                                               | 0.0             |
 | `loss_function_masking`    | bool  | Restrict similarity loss to masked regions (requires `mask` in JSON)                             | false           |
 | `roi_masking`              | bool  | Zero out image background outside the ROI before registration (requires `mask` in JSON)          | false           |
@@ -458,7 +458,7 @@ Segmentations add a Dice loss, and masks can restrict the similarity loss or rem
 
 ### Dice Loss
 
-When `dice_loss_weight > 0`, the Dice loss is computed between warped and target segmentations. Only classes present in both segmentations contribute to the loss (background is excluded). Every sampled pair must share at least one non-background label, otherwise training stops with an error. With `unpaired` datasets any two images can be paired, so make sure all segmentations share at least one label.
+When `dice_loss_weight > 0`, the Dice loss is computed between warped and target segmentations. Only classes present in both segmentations contribute to the loss (background is excluded). Every sampled pair must share at least one non-background label. Otherwise training stops with an error. With `unpaired` datasets any two images can be paired, so make sure all segmentations share at least one label.
 
 ```yaml
 training:
@@ -480,7 +480,7 @@ training:
 
 ### ROI Masking
 
-When `roi_masking: true`, images are multiplied by the binary mask after augmentation, zeroing out background regions before they enter the network.
+When `roi_masking: true`, images are multiplied by the binary mask after augmentation, zeroing out background regions before they enter the network. If you finetune with ROI masking, register with `--input_masking` and both masks at inference, so the network sees the same kind of input.
 
 ```yaml
 training:
@@ -538,10 +538,8 @@ Without `subject_id`, `use_label` has no effect.
 ```yaml
 experiment:
   model_weights: "unigradicon"      # Auto-downloads uniGradICON weights
-  # OR
-  model_weights: "multigradicon"    # Auto-downloads multiGradICON weights
-  # OR
-  model_weights: "/path/to/my/weights.trch"  # Use custom weights
+  # model_weights: "multigradicon"  # Auto-downloads multiGradICON weights
+  # model_weights: "/path/to/my/weights.trch"  # Use custom weights
 ```
 
 
@@ -611,11 +609,11 @@ Results can still differ slightly between runs, because data loading with severa
 
 ### Caching
 
-Preprocessed images are cached so later runs start faster. The cache is stored in `cache_dir`, or in the experiment's results folder if `cache_dir` is not set, and it is rebuilt automatically when the dataset, its files, or a preprocessing setting changes. To turn it off, for example while your data is still changing
+Preprocessed images are cached so later runs start faster. The cache is stored in `cache_dir`, or in the experiment's results folder if `cache_dir` is not set. It is rebuilt automatically when the dataset, its files, or a preprocessing setting changes. To turn it off, for example while your data is still changing
 
 ```yaml
 datasets:
-  - name: "my_dataset"
+  - name: "my_data"
     use_cache: false
 ```
 
@@ -642,5 +640,4 @@ Here are some common issues that may arise during finetuning, along with their s
 - "has no data entries" means the data list in the JSON file is empty. Add your images to it.
 - If a setting in your YAML file is misspelled, a warning lists it as unrecognized and suggests the closest valid key, for example "'epocs' (did you mean 'epochs'?)". The misspelled setting has no effect until you fix it.
 - Errors such as "must be a number" or "must be true or false" mean a value has the wrong type. YAML reads 5e-5 as text, so write `5.0e-5` instead, and write booleans without quotes (`false`, not `"false"`).
-- Dataset weights do not need to sum to 1, since they are relative. They only need to be positive.
 - If the cache uses too much disk space, delete old cache folders in the cache_dir (or in the experiment's results folder), set `use_cache: false`, or limit maximum_images.

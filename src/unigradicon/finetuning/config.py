@@ -175,7 +175,7 @@ class ExperimentConfig:
 class TrainingConfig:
     batch_size: int = 4
     gpus: List[int] = field(default_factory=lambda: [0])
-    epochs: int = 500
+    epochs: int = 100
     eval_period: int = 10
     save_period: int = 50
     input_shape: List[int] = field(default_factory=lambda: [175, 175, 175])
