@@ -1,19 +1,21 @@
-import logging
-import torch
-import numpy as np
 import collections
 import hashlib
 import json
-from tqdm import tqdm
-import random
+import logging
 import os
-import footsteps
-import itk
+import random
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
-from torch.utils.data import Dataset as TorchDataset
 
 import blosc
+import footsteps
+import itk
+import torch
+from torch.utils.data import Dataset as TorchDataset
+from tqdm import tqdm
+
+from unigradicon import quantile
+
 blosc.set_nthreads(1)
 
 logger = logging.getLogger(__name__)
@@ -52,9 +54,7 @@ class PairKeys:
 
 @dataclass
 class DatasetParams:
-    """Shared defaults for ``Dataset.__init__`` (via ``_DEFAULTS``) and
-    ``DatasetConfig`` (via inheritance) so a new optional parameter is
-    declared in exactly one place."""
+    """Defaults shared by Dataset and DatasetConfig."""
     cache_dir: Optional[str] = None
     maximum_images: Optional[int] = None
     use_cache: bool = True
@@ -69,23 +69,26 @@ _DEFAULTS = DatasetParams()
 
 
 def _stable_hash(value) -> str:
-    """SHA-256 of a JSON dump. ``hash()`` is salted per-process so we can't
-    use it for cache keys."""
+    """SHA-256 of a JSON dump (hash() is salted per process)."""
     if not value:
         return ""
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _reorient(moving: "itk.Image") -> "itk.Image":
-    desired_coordinate_orientation = itk.ITKCommonBasePython.itkSpatialOrientationEnums.ValidCoordinateOrientations_ITK_COORDINATE_ORIENTATION_RAS
-    if hasattr(itk, "AnatomicalOrientation"):
-        desired_coordinate_orientation = itk.AnatomicalOrientation(desired_coordinate_orientation)
-
-    return itk.orient_image_filter(
-        moving,
-        desired_coordinate_orientation=desired_coordinate_orientation,
-        use_image_direction=True)
+def _file_stamps(data: List[Dict[str, str]]) -> Dict[str, Optional[List[int]]]:
+    """Size and mtime of each referenced file, so replaced files change the cache signature."""
+    stamps = {}
+    for item in data:
+        for field_name in (Fields.IMAGE, Fields.SEGMENTATION, Fields.MASK):
+            path = item.get(field_name)
+            if path:
+                try:
+                    stat = os.stat(path)
+                    stamps[str(path)] = [stat.st_size, stat.st_mtime_ns]
+                except OSError:
+                    stamps[str(path)] = None
+    return stamps
 
 
 @dataclass
@@ -99,7 +102,7 @@ class DatasetEntry:
     @classmethod
     def from_dict(cls, item: Dict[str, str], idx: int, dataset_name: str) -> "DatasetEntry":
         if Fields.IMAGE not in item:
-            raise ValueError(f"Dataset {dataset_name}: missing '{Fields.IMAGE}' field in entry {idx}")
+            raise ValueError(f"Dataset '{dataset_name}': missing '{Fields.IMAGE}' field in entry {idx}")
         return cls(
             image=item[Fields.IMAGE],
             segmentation=item.get(Fields.SEGMENTATION),
@@ -128,9 +131,7 @@ def _build_required_field_map(entries: Sequence[DatasetEntry], field_name: str, 
 
 class ImageReader:
     def read(self, path: str) -> torch.Tensor:
-        itk_image = _reorient(itk.imread(path, itk.F))
-        # GetArrayFromImage returns an owned numpy array (unlike the *View*
-        # variant), so from_numpy is safe and skips the extra tensor copy.
+        itk_image = itk.imread(path, itk.F)
         image = itk.GetArrayFromImage(itk_image)
         return torch.from_numpy(image)
 
@@ -155,17 +156,13 @@ class ImagePreprocessor:
     def preprocess_image(self, path: str) -> torch.Tensor:
         volume = self.reader.read(path)
         volume = volume[None, None].float()
-        volume = torch.nn.functional.interpolate(
-            volume, self.input_shape, mode="trilinear", align_corners=True
-        )
 
         is_ct = self.modality_map.get(path, self.is_ct)
         if is_ct:
             im_min, im_max = self.ct_window
         else:
-            flat = volume.view(-1).numpy()
-            im_min = float(np.quantile(flat, self.quantile_range[0]))
-            im_max = float(np.quantile(flat, self.quantile_range[1]))
+            im_min = float(quantile(volume, self.quantile_range[0]))
+            im_max = float(quantile(volume, self.quantile_range[1]))
 
         normalized = torch.clamp(volume, im_min, im_max)
         normalized = normalized - im_min
@@ -173,6 +170,9 @@ class ImagePreprocessor:
         if intensity_range > 0:
             normalized = normalized / intensity_range
 
+        normalized = torch.nn.functional.interpolate(
+            normalized, self.input_shape, mode="trilinear", align_corners=False
+        )
         return normalized[0]
 
     def preprocess_label_map(self, path: str) -> torch.Tensor:
@@ -183,10 +183,7 @@ class ImagePreprocessor:
 
 
 class DatasetCache:
-    """Cache path is partitioned by a signature hashed from every
-    preprocessing-affecting parameter, so configs that share a ``cache_dir``
-    but differ in any of those parameters get distinct cache files (no
-    thrashing) and identical configs share the cache transparently."""
+    """Preprocessed tensors, stored under a hash of every preprocessing parameter."""
 
     def __init__(
         self,
@@ -204,10 +201,8 @@ class DatasetCache:
             root = cache_dir if cache_dir else footsteps.output_dir
             if root is None:
                 raise ValueError(
-                    f"Dataset '{dataset_name}': caching is enabled but no cache_dir was "
-                    f"provided and footsteps.output_dir is unset. "
-                    f"Call footsteps.initialize() before constructing the dataset, "
-                    f"or pass cache_dir explicitly, or set use_cache=False."
+                    f"Dataset '{dataset_name}': caching is enabled but there is no cache "
+                    f"location. Set 'cache_dir' for this dataset, or set 'use_cache: false'."
                 )
             self.base_dir = os.path.join(root, signature)
 
@@ -223,7 +218,6 @@ class DatasetCache:
         try:
             return torch.load(cache_path, map_location="cpu", weights_only=False)
         except Exception as e:
-            # Treat any deserialization failure as "no cache" — caller rebuilds.
             logger.warning(
                 f"Dataset '{self.dataset_name}': failed to deserialize cache file "
                 f"{cache_path} ({e}); rebuilding from source."
@@ -235,16 +229,12 @@ class DatasetCache:
         if not cache_path:
             return
         os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
-        # Atomic write: tmp file + rename so concurrent readers never see a
-        # partial file.
         tmp_path = f"{cache_path}.tmp.{os.getpid()}"
-        torch.save(payload, tmp_path)
+        torch.save(payload, tmp_path, pickle_protocol=4)
         os.replace(tmp_path, cache_path)
 
     def write_metadata(self, meta: Dict[str, Any]) -> None:
-        """Sidecar ``_meta.json`` describing the params behind the
-        hash-named directory. Skipped when the file already exists since the
-        signature uniquely determines the content."""
+        """Write _meta.json describing the parameters behind the signature."""
         if not self.enabled:
             return
         meta_path = os.path.join(self.base_dir, "_meta.json")
@@ -265,8 +255,6 @@ class RandomPairSampler:
         self._key_to_index = {k: i for i, k in enumerate(self.keys)}
 
     def sample_partner(self, anchor: str) -> str:
-        # Pick uniformly from the n-1 keys that are not ``anchor`` without
-        # rejection-sampling: draw an index in [0, n-1) and bump past anchor.
         anchor_idx = self._key_to_index[anchor]
         partner_idx = random.randrange(len(self.keys) - 1)
         if partner_idx >= anchor_idx:
@@ -304,17 +292,9 @@ class SubjectPairSampler:
 
 
 class Dataset(TorchDataset):
-    """3D medical-image registration dataset.
+    """3D registration dataset: the index selects image_A, image_B is a random partner.
 
-    ``__getitem__(index)`` selects the anchor image (image_A) by index and
-    samples a partner (image_B) randomly from the dataset. This makes the
-    weighting in ``WeightedRandomSampler`` and the partitioning in
-    ``DistributedSampler`` actually drive what's loaded; pair construction
-    keeps its randomness via the partner draw.
-
-    When ``use_compression=True``, tensors are compressed with blosc at
-    load time and decompressed lazily inside ``_build_pair`` so DataLoader
-    workers each pay the per-sample decompression cost in parallel.
+    With use_compression, tensors are kept as blosc bytes and decompressed per sample.
     """
 
     def __init__(self,
@@ -351,9 +331,6 @@ class Dataset(TorchDataset):
             )
         logger.info(f"Dataset '{self.name}': {len(loaded_paths)} image(s) loaded.")
 
-        # Build the pair sampler before subject maps and auxiliary maps so
-        # both index the post-filter ``self.keys`` (PairedDataset drops
-        # orphan-subject images here).
         self.keys = loaded_paths
         self.pair_sampler = self._create_pair_sampler()
         self.keys = self.pair_sampler.keys
@@ -367,8 +344,8 @@ class Dataset(TorchDataset):
 
     def _build_entries_and_field_maps(self, data: List[Dict[str, str]]) -> None:
         if not data:
-            raise ValueError(f"Dataset {self.name}: 'data' must be provided (from JSON source)")
-        self._data_fingerprint = _stable_hash(data)
+            raise ValueError(f"Dataset '{self.name}': 'data' must be provided (from JSON source)")
+        self._data_fingerprint = _stable_hash({"entries": data, "files": _file_stamps(data)})
         self.entries = [
             DatasetEntry.from_dict(item, idx, self.name)
             for idx, item in enumerate(data)
@@ -424,9 +401,6 @@ class Dataset(TorchDataset):
         self.cache.write_metadata({"signature": cache_signature, **cache_params})
 
     def _load_image_store(self, maximum_images: Optional[int], shuffle: bool) -> List[str]:
-        # Sort before slicing so the ``maximum_images`` subset is deterministic
-        # across runs; otherwise ``shuffle=True`` picks a different subset every
-        # run and the cache thrashes.
         paths = sorted(entry.image for entry in self.entries)
         if maximum_images is not None:
             paths = paths[:maximum_images]
@@ -474,16 +448,13 @@ class Dataset(TorchDataset):
     def _load_label_maps(self, field_name: str, path_map: Dict[str, str]):
         cache_name = _AUX_CACHE_NAMES[field_name]
         cache = self.cache.load(cache_name)
-        # Subset check guards against a stale auxiliary cache when self.keys
-        # is now a superset (e.g. an image that previously failed to load now
-        # succeeds, so its label was never written to the cache).
         if cache is not None and set(self.keys).issubset(cache):
             for path in self.keys:
                 self.store[path][field_name] = cache[path]
             return
 
         failures = []
-        for path in tqdm(self.keys, desc=f"Loading {field_name} maps for '{self.name}'"):
+        for path in tqdm(self.keys, desc=f"Loading {field_name}s for '{self.name}'"):
             label_path = path_map.get(path)
             if label_path is None:
                 failures.append((path, f"missing '{field_name}' path"))
@@ -492,7 +463,7 @@ class Dataset(TorchDataset):
                 self.store[path][field_name] = self._compress(self.preprocessor.preprocess_label_map(label_path))
             except Exception as e:
                 logger.warning(
-                    f"Dataset '{self.name}': failed to preprocess {field_name} map "
+                    f"Dataset '{self.name}': failed to preprocess {field_name} "
                     f"for image '{path}': {e}."
                 )
                 failures.append((path, e))
@@ -500,7 +471,7 @@ class Dataset(TorchDataset):
         if failures:
             raise RuntimeError(
                 f"Dataset '{self.name}': failed to load {len(failures)}/{len(self.keys)} "
-                f"{field_name} map(s). Auxiliary cache was not written; fix the input data and retry. "
+                f"{field_name}(s). Auxiliary cache was not written; fix the input data and retry. "
                 f"First failure: {failures[0][0]}: {failures[0][1]}"
             )
 
@@ -601,9 +572,7 @@ class Dataset(TorchDataset):
 
 
 class PairedDataset(Dataset):
-    """Variant of ``Dataset`` that pairs only within ``subject_id``. JSON
-    entries must include ``subject_id`` and at least one subject must have
-    ≥2 images."""
+    """Dataset that pairs only images sharing a subject_id."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

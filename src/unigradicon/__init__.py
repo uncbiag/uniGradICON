@@ -2,7 +2,6 @@ import itk
 import os
 import warnings
 
-import footsteps
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -15,7 +14,6 @@ from icon_registration import config
 from icon_registration.mermaidlite import compute_warped_image_multiNC
 import icon_registration.itk_wrapper
 
-# Extended loss object that includes dice_loss for segmentation-based training
 ICONDiceLoss = namedtuple('ICONDiceLoss', ['all_loss', 'inverse_consistency_loss', 'similarity_loss', 'transform_magnitude', 'flips', 'dice_loss'])
 
 input_shape = [1, 1, 175, 175, 175]
@@ -54,7 +52,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             unique_A = torch.unique(segmentation_A.long())
             unique_B = torch.unique(segmentation_B.long())
             common_classes = unique_A[torch.isin(unique_A, unique_B)]
-            common_classes = common_classes[common_classes != 0]  # exclude background
+            common_classes = common_classes[common_classes != 0]
             num_classes = len(common_classes)
 
             if num_classes == 0:
@@ -68,6 +66,11 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
 
             seg_A_one_hot = F.one_hot(remap[segmentation_A.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
             seg_B_one_hot = F.one_hot(remap[segmentation_B.long()], num_classes=num_classes + 1)[:,0].permute(0, 4, 1, 2, 3)[:, 1:].float()
+            valid_classes = (seg_A_one_hot.sum(dim=(2, 3, 4)) > 0) & (seg_B_one_hot.sum(dim=(2, 3, 4)) > 0)
+            if not torch.all(valid_classes.any(dim=1)):
+                raise ValueError(
+                    "Dice loss requires at least one shared non-background segmentation class in each pair."
+                )
 
         # Tag used elsewhere for optimization.
         # Must be set at beginning of forward b/c not preserved by .cuda() etc
@@ -133,7 +136,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
                 self.spacing,
                 1,
             )
-            dice_loss = self.dice_loss(self.warped_seg_A, seg_B_one_hot) + self.dice_loss(self.warped_seg_B, seg_A_one_hot)
+            dice_loss = self.dice_loss(self.warped_seg_A, seg_B_one_hot, valid_classes=valid_classes) + self.dice_loss(self.warped_seg_B, seg_A_one_hot, valid_classes=valid_classes)
         else:
             dice_loss = 0.0
             
@@ -165,15 +168,22 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
         if self.apply_intensity_conservation_loss:
             self.warped_loss_input_A_jacob = self.warped_loss_input_A[jacobian_slice] * jacobian_AB
             self.warped_loss_input_B_jacob = self.warped_loss_input_B[jacobian_slice] * jacobian_BA
-            similarity_loss = self.similarity(
-                self.warped_loss_input_B_jacob,
-                loss_target_A[jacobian_slice],
-                mask_A[jacobian_slice] if mask_A is not None else None
-            ) + self.similarity(
-                self.warped_loss_input_A_jacob,
-                loss_target_B[jacobian_slice],
-                mask_B[jacobian_slice] if mask_B is not None else None
-            )
+            if self.loss_function_masking:
+                similarity_loss = self.similarity(
+                    self.warped_loss_input_B_jacob,
+                    loss_target_A[jacobian_slice],
+                    mask_A[jacobian_slice]
+                ) + self.similarity(
+                    self.warped_loss_input_A_jacob,
+                    loss_target_B[jacobian_slice],
+                    mask_B[jacobian_slice]
+                )
+            else:
+                similarity_loss = self.similarity(
+                    self.warped_loss_input_B_jacob, loss_target_A[jacobian_slice]
+                ) + self.similarity(
+                    self.warped_loss_input_A_jacob, loss_target_B[jacobian_slice]
+                )
         else:
             if self.loss_function_masking:
                 similarity_loss = self.similarity(self.warped_loss_input_A, loss_target_B, mask_B) + self.similarity(self.warped_loss_input_B, loss_target_A, mask_A)
@@ -240,7 +250,7 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
                 similarity_loss,
                 transform_magnitude,
                 icon.losses.flips(self.phi_BA_vectorfield),
-                dice_loss if isinstance(dice_loss, torch.Tensor) else torch.tensor(dice_loss),
+                dice_loss,
             )
         else:
             return icon.losses.ICONLoss(
@@ -274,16 +284,8 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
             )
             return dV
         
-    def dice_loss(self, pred, target, epsilon=1e-6):
-        """
-        Compute Dice loss between one-hot encoded prediction and target.
-        Args:
-            pred (Tensor): One-hot encoded prediction of shape (N, C, H, W, D)
-            target (Tensor): One-hot encoded ground truth of same shape
-            epsilon (float): Smoothing factor to avoid division by zero
-        Returns:
-            loss (float): Dice loss
-        """
+    def dice_loss(self, pred, target, epsilon=1e-6, valid_classes=None):
+        """Mean Dice loss over classes; with valid_classes, only the classes shared by each pair."""
         assert pred.shape == target.shape, "Pred and target must be the same shape"
 
         intersection = torch.sum(pred * target, dim=(2,3,4))
@@ -292,34 +294,21 @@ class GradientICONSparse(network_wrappers.RegistrationModule):
 
         dice_score = (2. * intersection + epsilon) / (pred_sum + target_sum + epsilon)
 
-        dice_loss = 1 - dice_score.mean()
-        return dice_loss
+        if valid_classes is None:
+            return 1 - dice_score.mean()
+        class_losses = (1 - dice_score) * valid_classes
+        return (class_losses.sum(dim=1) / valid_classes.sum(dim=1)).mean()
     
     def clean(self):
-        # Under DataParallel the forward pass sets these attributes on
-        # replicas, not on the wrapped module — so the original may not have
-        # them. Guard each delete so multi-GPU training doesn't AttributeError.
         for _attr in ("phi_AB", "phi_BA",
                       "phi_AB_vectorfield", "phi_BA_vectorfield",
-                      "warped_image_A", "warped_image_B"):
+                      "warped_image_A", "warped_image_B",
+                      "warped_label_A", "warped_label_B",
+                      "warped_seg_A", "warped_seg_B",
+                      "warped_loss_input_A", "warped_loss_input_B",
+                      "warped_loss_input_A_jacob", "warped_loss_input_B_jacob"):
             if hasattr(self, _attr):
                 delattr(self, _attr)
-        if self.use_label:
-            for _attr in ("warped_label_A", "warped_label_B"):
-                if hasattr(self, _attr):
-                    delattr(self, _attr)
-        if hasattr(self, 'warped_seg_A'):
-            del self.warped_seg_A
-        if hasattr(self, 'warped_seg_B'):
-            del self.warped_seg_B
-        if hasattr(self, 'warped_loss_input_A'):
-            del self.warped_loss_input_A
-        if hasattr(self, 'warped_loss_input_B'):
-            del self.warped_loss_input_B
-        if hasattr(self, 'warped_loss_input_A_jacob'):
-            del self.warped_loss_input_A_jacob
-        if hasattr(self, 'warped_loss_input_B_jacob'):
-            del self.warped_loss_input_B_jacob
 
 def make_network(input_shape, include_last_step=False, lmbda=1.5, loss_fn=icon.LNCC(sigma=5), use_label=False, apply_intensity_conservation_loss=False, dice_loss_weight=0.0, loss_function_masking=False):
     dimension = len(input_shape) - 2
@@ -415,6 +404,9 @@ def apply_mask(image, mask):
     mask_cast_filter.SetInput(mask)
     mask_cast_filter.Update()
     mask = mask_cast_filter.GetOutput()
+    mask = itk.binary_threshold_image_filter(
+        mask, upper_threshold=0, inside_value=0, outside_value=1
+    )
     mask_filter = itk.MultiplyImageFilter[itk.Image.F3, itk.Image.F3,
                                     itk.Image.F3].New()
 
@@ -425,16 +417,10 @@ def apply_mask(image, mask):
     return mask_filter.GetOutput()
 
 def preprocess(image, modality="ct", mask=None, ct_window=None, quantile_range=None):
-    """Preprocess a medical image for registration.
+    """Clamp and rescale an image to [0, 1], optionally applying a binary mask.
 
-    Args:
-        image: ITK image to preprocess.
-        modality: 'ct' or 'mri'.
-        mask: Optional binary ITK mask to apply to the image intensities.
-        ct_window: Optional (min, max) HU window for CT. Default: (-1000, 1000).
-        quantile_range: Optional (lower, upper) quantile range for MRI normalization.
-            Default (None): uses actual image min and 99th percentile, matching
-            the finetuning default of (0.0, 0.99).
+    CT uses ct_window (default -1000..1000 HU); MRI uses quantile_range
+    (default: image min to the 99th percentile).
     """
     if modality == "ct":
         if ct_window is None:
@@ -480,9 +466,9 @@ def main():
     parser.add_argument("--moving_modality", required=True,
                          type=str, help="The modality of the moving image. Should be 'ct' or 'mri'.")
     parser.add_argument("--fixed_segmentation", required=False,
-                         type=str, help="The path of the segmentation map of the fixed image.")
+                         type=str, help="The path of the segmentation of the fixed image, used for Dice loss (see --dice_loss_weight).")
     parser.add_argument("--moving_segmentation", required=False,
-                         type=str, help="The path of the segmentation map of the moving image.")
+                         type=str, help="The path of the segmentation of the moving image, used for Dice loss (see --dice_loss_weight).")
     parser.add_argument("--fixed_mask", required=False,
                          type=str, help="The path of the binary mask for the fixed image.")
     parser.add_argument("--moving_mask", required=False,
@@ -509,7 +495,7 @@ def main():
     parser.add_argument("--dice_loss_weight", required=False, type=float, default=0.0,
                             help="The weight of the Dice loss if segmentations are provided. Default is 0.0 (no Dice loss).")
     parser.add_argument("--network_weights", required=False, type=str, default=None,
-                            help="Path to a custom network weights checkpoint (e.g., results/.../network_weights_100). "
+                            help="Path to a custom network weights checkpoint (e.g., results/<experiment>/checkpoints/network_weights_final.trch). "
                                  "If omitted, packaged weights are downloaded/used.")
     parser.add_argument("--ct_window", required=False, nargs=2, type=float, default=None, metavar=("MIN", "MAX"),
                             help="Custom CT HU window [min max]. Default: -1000 1000. "
@@ -566,30 +552,16 @@ def main():
     else:
         moving_mask = None
 
-    legacy_segmentation_masks = False
     if (
         fixed_mask is None
         and moving_mask is None
         and fixed_segmentation is not None
         and moving_segmentation is not None
         and args.dice_loss_weight == 0.0
-        and not args.input_masking
+        and (args.loss_function_masking or not args.input_masking)
     ):
-        # Preserve the unigradicon<=1.0.5 behavior where providing segmentations
-        # used them as masks: input masks by default, loss masks with
-        # --loss_function_masking.
         if not args.loss_function_masking:
             args.input_masking = True
-        legacy_segmentation_masks = True
-
-    if (
-        (legacy_segmentation_masks or args.loss_function_masking)
-        and fixed_mask is None
-        and moving_mask is None
-        and fixed_segmentation is not None
-        and moving_segmentation is not None
-        and args.dice_loss_weight == 0.0
-    ):
         warnings.warn(
             "Using segmentations as masks is deprecated. Use --fixed_mask and "
             "--moving_mask for input/loss masking; reserve --fixed_segmentation "
@@ -612,7 +584,6 @@ def main():
     else:
         io_iterations = int(args.io_iterations)
 
-    # Apply ROI masking to inputs if requested
     ct_win = tuple(args.ct_window) if args.ct_window else None
     q_range = tuple(args.quantile_range) if args.quantile_range else None
 
@@ -718,7 +689,7 @@ def maybe_cast(img: itk.Image):
     if str((type(img), itk.D)) not in itk.NearestNeighborInterpolateImageFunction.GetTypesAsList():
 
         if type(img) in (itk.Image[itk.ULL, 3], itk.Image[itk.UL, 3]):
-            raise Exception("Label maps of type unsigned long may have values that cannot be represented in a double")
+            raise Exception("Segmentations of type unsigned long may have values that cannot be represented in a double")
  
         maybe_cast_back = itk.CastImageFilter[itk.Image[itk.D, 3], type(img)].New()
 

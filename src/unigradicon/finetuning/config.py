@@ -1,23 +1,24 @@
 import copy
-import logging
-import random
-import yaml
+import difflib
 import json
+import logging
 import os
+import random
 from dataclasses import dataclass, field, fields
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union, get_args, get_origin
+
 import numpy as np
 import torch
-from torch.utils.data import ConcatDataset, WeightedRandomSampler, DataLoader
-from typing import Dict, List, Tuple, Any, FrozenSet, Optional
+import yaml
+from torch.utils.data import ConcatDataset, DataLoader, WeightedRandomSampler
+
 from . import dataset
 
 logger = logging.getLogger(__name__)
 
 
 def _seed_worker(worker_id: int) -> None:
-    """DataLoader ``worker_init_fn``: seeds Python ``random`` and NumPy from
-    PyTorch's per-worker seed so augmentation/sampling done inside worker
-    subprocesses is reproducible when the parent seed is set."""
+    """DataLoader worker_init_fn: seed random and NumPy from the worker's torch seed."""
     seed = torch.initial_seed() % (2 ** 32)
     np.random.seed(seed)
     random.seed(seed)
@@ -96,28 +97,13 @@ REQUIRED_EXPERIMENT_KEYS = {ExperimentKeys.NAME, ExperimentKeys.MODEL_WEIGHTS}
 REQUIRED_DATASET_KEYS = {DatasetKeys.NAME, DatasetKeys.TYPE, DatasetKeys.JSON_FILE}
 OPTIONAL_DATA_FIELDS = frozenset({dataset.Fields.SEGMENTATION, dataset.Fields.MASK})
 
-# Must mirror unigradicon.make_sim's accepted values; runtime lowercases before
-# dispatching, so this set is the canonical lowercase form.
 VALID_SIMILARITIES = frozenset({"lncc", "lncc2", "mind"})
 
-# YAML uses "lambda" but ``lambda`` is a Python keyword, so the dataclass
-# field is named ``lmbda``; this alias bridges the two.
 TRAINING_FIELD_ALIASES = {TrainingKeys.LAMBDA: "lmbda"}
-DATASET_FIELD_ALIASES: Dict[str, str] = {}
-
-DEFAULT_VAL_BATCH_SIZE = 1
-DEFAULT_DROP_LAST = True
-DEFAULT_PIN_MEMORY = True
-DEFAULT_SAMPLER_REPLACEMENT = True
 
 
 def _schema_kwargs(raw: Dict[str, Any], schema_cls, aliases: Dict[str, str]) -> Dict[str, Any]:
-    """Translate a raw YAML dict into kwargs for a dataclass.
-
-    Forwards only keys that map to a dataclass field (directly or via alias);
-    missing keys fall through to the dataclass field defaults. Unknown keys
-    are silently dropped here — ``ConfigValidator`` already warns about them.
-    """
+    """Keep raw keys that map to a dataclass field; unknown keys are dropped (the validator warns)."""
     valid_field_names = {f.name for f in fields(schema_cls)}
     kwargs: Dict[str, Any] = {}
     for key, value in raw.items():
@@ -130,6 +116,46 @@ def _schema_kwargs(raw: Dict[str, Any], schema_cls, aliases: Dict[str, str]) -> 
 def _yaml_keys_for_dataclass(schema_cls, aliases: Dict[str, str]) -> set:
     inverse = {field_name: yaml_key for yaml_key, field_name in aliases.items()}
     return {inverse.get(f.name, f.name) for f in fields(schema_cls)}
+
+
+def _describe_unknown_keys(unknown: set, valid_keys: set) -> str:
+    """Format unknown keys, suggesting the closest valid key for likely typos."""
+    described = []
+    for key in sorted(unknown, key=str):
+        match = difflib.get_close_matches(str(key), sorted(valid_keys), n=1)
+        described.append(f"'{key}' (did you mean '{match[0]}'?)" if match else f"'{key}'")
+    return ", ".join(described)
+
+
+def _validate_types(raw: Dict[str, Any], schema_cls, aliases: Dict[str, str], where: str) -> None:
+    """Check each known key's value against the dataclass field annotation."""
+    field_types = {f.name: f.type for f in fields(schema_cls)}
+    for key, value in raw.items():
+        expected_type = field_types.get(aliases.get(key, key))
+        if expected_type is None:
+            continue
+        if get_origin(expected_type) is Union and type(None) in get_args(expected_type):
+            if value is None:
+                continue
+            expected_type = next(a for a in get_args(expected_type) if a is not type(None))
+        origin = get_origin(expected_type) or expected_type
+        if origin is bool:
+            ok, expected = isinstance(value, bool), "true or false"
+        elif origin is int:
+            ok, expected = isinstance(value, int) and not isinstance(value, bool), "an integer"
+        elif origin is float:
+            ok, expected = isinstance(value, (int, float)) and not isinstance(value, bool), "a number"
+        elif origin is str:
+            ok, expected = isinstance(value, str), "a string"
+        elif origin in (list, tuple):
+            ok, expected = isinstance(value, (list, tuple)), "a list"
+        else:
+            continue
+        if not ok:
+            hint = ""
+            if expected == "a number" and isinstance(value, str):
+                hint = " YAML reads values like 5e-5 as text; write 5.0e-5 or 0.00005."
+            raise ValueError(f"{where}: '{key}' must be {expected} (got {value!r}).{hint}")
 
 
 @dataclass
@@ -180,17 +206,13 @@ class TrainingConfig:
 
     @property
     def network_input_shape(self) -> List[int]:
-        """``input_shape`` with the [1, 1] batch+channel prefix that
-        ``unigradicon.make_network`` expects."""
+        """input_shape with the [1, 1] batch/channel prefix."""
         return [1, 1] + list(self.input_shape)
 
 
 @dataclass
 class DatasetConfig(dataset.DatasetParams):
-    """``name``/``type``/``json_file`` are YAML-required and validated in
-    ``__post_init__``; the empty defaults exist only because dataclass
-    inheritance forbids non-defaulted fields after the all-defaulted
-    ``DatasetParams`` parent."""
+    """name, type and json_file are required; the empty defaults only satisfy dataclass inheritance."""
     name: str = ""
     type: str = ""
     json_file: str = ""
@@ -200,14 +222,13 @@ class DatasetConfig(dataset.DatasetParams):
         for field_name in ("name", "type", "json_file"):
             if not getattr(self, field_name):
                 raise ValueError(
-                    f"DatasetConfig requires non-empty '{field_name}' "
-                    f"(got an empty value). Build via DatasetConfig.from_dict "
-                    f"after validate_config()."
+                    f"Each dataset requires a non-empty '{field_name}'. "
+                    f"Set '{field_name}' for every entry under 'datasets' in the YAML config."
                 )
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "DatasetConfig":
-        kwargs = _schema_kwargs(raw, cls, DATASET_FIELD_ALIASES)
+        kwargs = _schema_kwargs(raw, cls, {})
         if "ct_window" in kwargs:
             kwargs["ct_window"] = tuple(kwargs["ct_window"])
         if "quantile_range" in kwargs:
@@ -234,7 +255,7 @@ class FinetuningConfigSchema:
 
 
 VALID_TRAINING_KEYS = _yaml_keys_for_dataclass(TrainingConfig, TRAINING_FIELD_ALIASES)
-VALID_DATASET_KEYS = _yaml_keys_for_dataclass(DatasetConfig, DATASET_FIELD_ALIASES)
+VALID_DATASET_KEYS = _yaml_keys_for_dataclass(DatasetConfig, {})
 
 
 @dataclass
@@ -266,6 +287,7 @@ class ConfigValidator:
         for key in REQUIRED_EXPERIMENT_KEYS:
             if key not in exp:
                 raise ValueError(f"Missing required experiment key: '{key}'")
+        _validate_types(exp, ExperimentConfig, {}, "experiment")
 
     def _validate_training(self) -> None:
         if ConfigSections.TRAINING not in self.config:
@@ -273,10 +295,11 @@ class ConfigValidator:
         train_config = self.config[ConfigSections.TRAINING]
         unknown = set(train_config.keys()) - VALID_TRAINING_KEYS
         if unknown:
-            logger.warning(f"Unrecognized training keys (possible typos): {sorted(unknown)}.")
-        for key in (TrainingKeys.RANDOM_FLIPS, TrainingKeys.RANDOM_AXIS_PERMUTATIONS):
-            if key in train_config and not isinstance(train_config[key], bool):
-                raise ValueError(f"'{key}' must be a boolean (true or false)")
+            logger.warning(
+                f"Unrecognized training keys will be ignored: "
+                f"{_describe_unknown_keys(unknown, VALID_TRAINING_KEYS)}."
+            )
+        _validate_types(train_config, TrainingConfig, TRAINING_FIELD_ALIASES, "training")
         if TrainingKeys.LEARNING_RATE in train_config and train_config[TrainingKeys.LEARNING_RATE] <= 0:
             raise ValueError(f"'{TrainingKeys.LEARNING_RATE}' must be positive")
         for positive_key in (TrainingKeys.EVAL_PERIOD, TrainingKeys.SAVE_PERIOD,
@@ -333,11 +356,33 @@ class ConfigValidator:
                     raise ValueError(
                         f"Dataset {idx} ('{ds_config.get(DatasetKeys.NAME, '?')}'): missing required key '{key}'"
                     )
+            ds_label = f"Dataset '{ds_config.get(DatasetKeys.NAME, idx)}'"
             unknown = set(ds_config.keys()) - VALID_DATASET_KEYS
             if unknown:
                 logger.warning(
-                    f"Dataset '{ds_config.get(DatasetKeys.NAME, '?')}': "
-                    f"unrecognized keys (possible typos): {sorted(unknown)}."
+                    f"{ds_label}: unrecognized keys will be ignored: "
+                    f"{_describe_unknown_keys(unknown, VALID_DATASET_KEYS)}."
+                )
+            _validate_types(ds_config, DatasetConfig, {}, ds_label)
+            for key in (DatasetKeys.CT_WINDOW, DatasetKeys.QUANTILE_RANGE):
+                if key not in ds_config:
+                    continue
+                bounds = ds_config[key]
+                if not (len(bounds) == 2
+                        and all(isinstance(b, (int, float)) and not isinstance(b, bool) for b in bounds)
+                        and bounds[0] < bounds[1]):
+                    raise ValueError(f"{ds_label}: '{key}' must be [min, max] with min < max (got {bounds}).")
+            if DatasetKeys.QUANTILE_RANGE in ds_config and not (
+                    0.0 <= ds_config[DatasetKeys.QUANTILE_RANGE][0]
+                    and ds_config[DatasetKeys.QUANTILE_RANGE][1] <= 1.0):
+                raise ValueError(
+                    f"{ds_label}: '{DatasetKeys.QUANTILE_RANGE}' values must be between 0 and 1 "
+                    f"(got {ds_config[DatasetKeys.QUANTILE_RANGE]})."
+                )
+            if ds_config.get(DatasetKeys.MAXIMUM_IMAGES) is not None and ds_config[DatasetKeys.MAXIMUM_IMAGES] < 2:
+                raise ValueError(
+                    f"{ds_label}: '{DatasetKeys.MAXIMUM_IMAGES}' must be at least 2 or null "
+                    f"(got {ds_config[DatasetKeys.MAXIMUM_IMAGES]})."
                 )
             dataset_config = DatasetConfig.from_dict(ds_config)
             if dataset_config.weight <= 0:
@@ -363,8 +408,7 @@ def _resolve_path(path: str, base_dir: str) -> str:
 
 
 class DatasetJsonCache:
-    """Memoizes JSON parsing + path resolution across the multiple validators
-    and loaders that consume the same dataset files in one build."""
+    """Caches parsed dataset JSON files for one build."""
 
     def __init__(self) -> None:
         self._content_cache: Dict[str, Dict[str, Any]] = {}
@@ -406,19 +450,18 @@ class DatasetJsonCache:
                 )
             item[dataset.Fields.IMAGE] = resolved_image
 
-            for field in OPTIONAL_DATA_FIELDS:
-                # Truthy check so ``{"segmentation": null}`` is treated as absent.
-                path = item.get(field)
+            for field_name in OPTIONAL_DATA_FIELDS:
+                path = item.get(field_name)
                 if not path:
-                    item.pop(field, None)
+                    item.pop(field_name, None)
                     continue
                 resolved = _resolve_path(path, base_dir)
                 if not os.path.exists(resolved):
                     raise FileNotFoundError(
-                        f"{field.capitalize()} file not found for entry {idx} in {json_path}: "
+                        f"{field_name.capitalize()} file not found for entry {idx} in {json_path}: "
                         f"{path} (resolved to {resolved})"
                     )
-                item[field] = resolved
+                item[field_name] = resolved
 
         return data
 
@@ -461,8 +504,7 @@ def validate_paired_datasets_have_pairs(
     config_dir: str,
     json_cache: DatasetJsonCache,
 ) -> None:
-    """Catches missing-pairs at config-validation time so we don't spend
-    minutes preprocessing images before ``SubjectPairSampler`` raises."""
+    """Fail before preprocessing if a paired dataset has no same-subject pairs."""
     for ds in schema.datasets:
         if ds.type != DatasetTypes.PAIRED:
             continue
@@ -517,8 +559,8 @@ def _keep_required_optional_fields(data: List[Dict[str, str]], data_fields: Froz
     filtered = []
     for item in data:
         filtered_item = dict(item)
-        for field in OPTIONAL_DATA_FIELDS - keep_fields:
-            filtered_item.pop(field, None)
+        for field_name in OPTIONAL_DATA_FIELDS - keep_fields:
+            filtered_item.pop(field_name, None)
         filtered.append(filtered_item)
     return filtered
 
@@ -527,14 +569,10 @@ def create_dataset_from_config(dataset_config: "DatasetConfig", input_shape: Tup
                                config_dir: str = "", use_label: bool = False,
                                data_fields: FrozenSet[str] = frozenset(),
                                json_cache: Optional[DatasetJsonCache] = None) -> dataset.Dataset:
-    """Build a ``Dataset`` (random pairing) or ``PairedDataset`` (subject-based
-    pairing) based on ``dataset_config.type``. Auxiliary data (segmentations,
-    masks) is filtered by ``data_fields``, not by the dataset type."""
+    """Build a Dataset (random pairs) or PairedDataset (same-subject pairs)."""
     json_cache = json_cache or DatasetJsonCache()
 
     json_file = _resolve_path(dataset_config.json_file, config_dir)
-    # Spread DatasetParams' fields so adding an optional parameter to
-    # ``DatasetParams`` flows through without touching this mapping.
     common_params = {
         'input_shape': input_shape,
         'name': dataset_config.name,
@@ -543,15 +581,9 @@ def create_dataset_from_config(dataset_config: "DatasetConfig", input_shape: Tup
         **{f.name: getattr(dataset_config, f.name) for f in fields(dataset.DatasetParams)},
     }
 
-    if dataset_config.type == DatasetTypes.UNPAIRED:
-        return dataset.Dataset(**common_params)
-    elif dataset_config.type == DatasetTypes.PAIRED:
+    if dataset_config.type == DatasetTypes.PAIRED:
         return dataset.PairedDataset(**common_params)
-    else:
-        raise ValueError(
-            f"Unknown dataset type: {dataset_config.type}. "
-            f"Must be '{DatasetTypes.UNPAIRED}' or '{DatasetTypes.PAIRED}'."
-        )
+    return dataset.Dataset(**common_params)
 
 
 def _build_datasets_and_val_loaders(
@@ -587,15 +619,13 @@ def _build_datasets_and_val_loaders(
         weights.extend([ds_config.weight / ds_length] * ds_length)
 
         logger.info(f"Dataset '{ds_config.name}': {ds_length} samples available.")
-        # ``shuffle=True`` so each validation call sees a different anchor;
-        # ``num_workers=0`` avoids re-spawning workers per call.
         val_loaders[ds_config.name] = DataLoader(
             ds,
-            batch_size=DEFAULT_VAL_BATCH_SIZE,
+            batch_size=1,
             shuffle=True,
             num_workers=0,
-            drop_last=DEFAULT_DROP_LAST,
-            pin_memory=DEFAULT_PIN_MEMORY,
+            drop_last=True,
+            pin_memory=True,
         )
 
     return datasets, weights, val_loaders
@@ -604,7 +634,7 @@ def _build_datasets_and_val_loaders(
 def _prepare_config(config_path: str, config: Optional[Dict[str, Any]]) -> Tuple[Dict[str, Any], str, FinetuningConfigSchema]:
     if config is None:
         config = load_config(config_path)
-    validate_config(config)
+        validate_config(config)
 
     prepared_config = copy.deepcopy(config)
     schema = FinetuningConfigSchema.from_dict(prepared_config)
@@ -654,13 +684,13 @@ def _create_train_loader(
         combined_dataset,
         batch_size=effective_batch_size,
         num_workers=training.num_workers,
-        drop_last=DEFAULT_DROP_LAST,
-        pin_memory=DEFAULT_PIN_MEMORY,
+        drop_last=True,
+        pin_memory=True,
         worker_init_fn=_seed_worker,
         sampler=WeightedRandomSampler(
             weights=normalized_weights,
             num_samples=samples_per_epoch,
-            replacement=DEFAULT_SAMPLER_REPLACEMENT,
+            replacement=True,
         ),
     )
 
@@ -668,16 +698,9 @@ def _create_train_loader(
 
 
 def create_data_loaders(config_path: str, config: Optional[Dict[str, Any]] = None) -> DataLoaderBundle:
-    """
-    Create training and validation dataloaders from YAML config.
+    """Create the training loader and per-dataset validation loaders from a YAML config.
 
-    Args:
-        config_path: Path to YAML config file (used to resolve relative paths)
-        config: Pre-loaded config dict. If None, loads from config_path.
-
-    Returns:
-        DataLoaderBundle containing training loader, validation loaders,
-        defaulted config dictionary, and required auxiliary data fields.
+    A pre-loaded ``config`` must already have passed ``validate_config``.
     """
     config, config_dir, schema = _prepare_config(config_path, config)
     json_cache = DatasetJsonCache()

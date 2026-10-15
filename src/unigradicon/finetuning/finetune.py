@@ -1,27 +1,33 @@
+import argparse
 import logging
 import os
 import random
-import footsteps
-from tqdm import tqdm
-import torch
-import torch.nn.functional as F
 from datetime import datetime
 from typing import Any, Dict, FrozenSet, List, Optional
-from torch.utils.tensorboard import SummaryWriter
+
+import footsteps
+import torch
+import torch.nn.functional as F
+from icon_registration import config as icon_config
 from icon_registration.losses import to_floats
 from icon_registration.mermaidlite import compute_warped_image_multiNC
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
+
 import unigradicon
-from icon_registration import config as icon_config
 from .config import (
     ConfigSections,
     ExperimentKeys,
     FinetuningConfigSchema,
     TrainingConfig,
     TrainingKeys,
+    create_data_loaders,
+    load_config,
     set_reproducibility_seed,
+    validate_config,
 )
 from .dataset import Fields, PairKeys
-from .visualization import add_eval_composite_panel
+from .visualization import add_eval_images
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +35,8 @@ CHECKPOINT_DIR = "checkpoints"
 NETWORK_WEIGHTS_PREFIX = "network_weights"
 OPTIMIZER_WEIGHTS_PREFIX = "optimizer_weights"
 DEFAULT_LOG_PERIOD = 10
-
-
-def loss_to_dict(loss_object: Any) -> Dict[str, float]:
-    return to_floats(loss_object)._asdict()
+VALIDATION_PAIRS = 4
+VALIDATION_SEED = 0
 
 
 def _affine_warp(image: torch.Tensor, forward: torch.Tensor, mode: str = "bilinear") -> torch.Tensor:
@@ -53,14 +57,10 @@ def augment(
     random_flips: bool = True,
     random_axis_permutations: bool = True,
 ) -> Dict[str, torch.Tensor]:
-    """Apply random affine augmentation to all spatial data in a batch dict.
+    """Random affine augmentation of every tensor in the batch.
 
-    Images are warped with bilinear interpolation; segmentations and masks
-    use nearest interpolation to preserve label values.
-
-    Both images share the same random flip/permutation but have slightly
-    different affine noise, so they share orientation but differ in detail.
-    Flips and axis permutations can be disabled independently; affine noise remains.
+    Images and labels use bilinear, segmentations and masks nearest interpolation.
+    A and B share the flip/permutation but get independent affine noise.
     """
     device = batch[PairKeys.IMAGE_A].device
     batch_size = batch[PairKeys.IMAGE_A].shape[0]
@@ -112,14 +112,7 @@ def _save_checkpoint(net: Any, optimizer: torch.optim.Optimizer, output_dir: str
 
 
 def _load_network_weights(net: Any, model_weights: str, loss_fn: Any, settings: TrainingConfig) -> Optional[str]:
-    """Load pretrained model-zoo weights or a custom checkpoint path.
-
-    Returns the resolved weights path so ``_build_optimizer`` can locate the
-    matching optimizer state file and resume from it; returns ``None`` when
-    model-zoo weights were used (no companion optimizer state to look for).
-    """
-    # A local file on disk wins over the model-zoo name match so a literal
-    # file named ``unigradicon`` (or any case variant) is treated as a path.
+    """Load model-zoo or checkpoint weights; return the checkpoint path (None for zoo weights)."""
     is_zoo_name = (
         not os.path.exists(model_weights)
         and model_weights.lower() in ("unigradicon", "multigradicon")
@@ -131,8 +124,6 @@ def _load_network_weights(net: Any, model_weights: str, loss_fn: Any, settings: 
             dice_loss_weight=settings.dice_loss_weight,
             loss_function_masking=settings.loss_function_masking,
         )
-        # Explicit ``strict=True`` catches architecture drift between
-        # ``make_network`` and ``get_model_from_model_zoo``.
         net.regis_net.load_state_dict(pretrained_net.regis_net.state_dict(), strict=True)
         return None
 
@@ -162,14 +153,7 @@ def _build_optimizer(
     learning_rate: float,
     model_weights: Optional[str],
 ) -> torch.optim.Optimizer:
-    """Build the Adam optimizer over the registration network parameters.
-
-    Uses ``net.regis_net.parameters()`` so that the optimizer is bound to the
-    same module whose ``state_dict`` is saved/loaded for checkpoints. This keeps
-    parameter ordering stable regardless of whether the network is wrapped in
-    DataParallel, which makes single-GPU ↔ multi-GPU resumes safe.
-    The configured learning rate always takes precedence over checkpoint values.
-    """
+    """Adam over net.regis_net; resumes a matching optimizer state, but the configured LR always wins."""
     optimizer = torch.optim.Adam(net.regis_net.parameters(), lr=learning_rate)
     if model_weights is None:
         logger.info("Initializing optimizer from scratch (model-zoo weights have no companion optimizer state).")
@@ -210,9 +194,7 @@ def _log_loss_scalars(writer: SummaryWriter, prefix: str, loss_dict: Dict[str, f
 
 
 def _apply_roi_masking(batch: Dict[str, torch.Tensor]) -> None:
-    """Zero out background under the ROI mask. Applied to both training and
-    validation batches so the network sees the same input distribution in
-    both phases."""
+    """Zero out the image background outside the ROI mask."""
     batch[PairKeys.IMAGE_A] = batch[PairKeys.IMAGE_A] * (batch[PairKeys.MASK_A] > 0).float()
     batch[PairKeys.IMAGE_B] = batch[PairKeys.IMAGE_B] * (batch[PairKeys.MASK_B] > 0).float()
 
@@ -244,84 +226,82 @@ def _train_one_batch(
     loss.backward()
     optimizer.step()
     net.clean()
-    return loss_to_dict(loss_object)
+    return to_floats(loss_object)._asdict()
+
+
+def _fixed_validation_batches(val_data_loaders_dict: Dict[str, Any]) -> Dict[str, Dict[str, torch.Tensor]]:
+    """Pick the same few pairs per dataset once, so every validation step is comparable."""
+    state = random.getstate()
+    random.seed(VALIDATION_SEED)
+    try:
+        batches = {}
+        for ds_name, loader in val_data_loaders_dict.items():
+            dataset = loader.dataset
+            indices = random.sample(range(len(dataset)), min(VALIDATION_PAIRS, len(dataset)))
+            pairs = [dataset[index] for index in indices]
+            batches[ds_name] = {key: torch.stack([pair[key] for pair in pairs]) for key in pairs[0]}
+    finally:
+        random.setstate(state)
+    return batches
+
+
+def _warp_segmentation(segmentation: torch.Tensor, net: Any) -> torch.Tensor:
+    return compute_warped_image_multiNC(
+        segmentation.float(),
+        net.phi_AB_vectorfield,
+        net.spacing,
+        spline_order=0,
+        zero_boundary=True,
+    )
 
 
 def _run_validation(
     net: Any,
     net_par: Any,
-    val_data_loaders_dict: Dict[str, Any],
+    val_batches: Dict[str, Dict[str, torch.Tensor]],
     writer: SummaryWriter,
     iteration: int,
     settings: TrainingConfig,
     data_fields: FrozenSet[str],
     device: torch.device,
 ) -> None:
-    if not val_data_loaders_dict:
-        return
-
-    ds_name, val_loader = random.choice(list(val_data_loaders_dict.items()))
-
+    has_seg = Fields.SEGMENTATION in data_fields
+    has_mask = Fields.MASK in data_fields
     net_par.eval()
     net.eval()
     try:
         with torch.no_grad():
-            val_batch = next(iter(val_loader))
-            val_batch = {key: value.to(device) for key, value in val_batch.items()}
-            if settings.roi_masking:
-                _apply_roi_masking(val_batch)
-            forward_kwargs = _build_forward_kwargs(val_batch, settings, data_fields)
-            val_loss = net(val_batch[PairKeys.IMAGE_A], val_batch[PairKeys.IMAGE_B], **forward_kwargs)
-            _log_loss_scalars(writer, f"val/{ds_name}", loss_to_dict(val_loss), iteration)
-            _write_eval_visualizations(
-                writer,
-                iteration,
-                val_batch,
-                net,
-                settings,
-                data_fields,
-                ds_name,
-            )
-            net.clean()
+            for ds_name, batch in val_batches.items():
+                batch = dict(batch)
+                if settings.roi_masking:
+                    _apply_roi_masking(batch)
+                losses, warped, warped_seg = [], [], []
+                for index in range(batch[PairKeys.IMAGE_A].shape[0]):
+                    pair = {key: value[index:index + 1].to(device) for key, value in batch.items()}
+                    loss = net(pair[PairKeys.IMAGE_A], pair[PairKeys.IMAGE_B],
+                               **_build_forward_kwargs(pair, settings, data_fields))
+                    losses.append(to_floats(loss)._asdict())
+                    warped.append(net.warped_image_A[:, :1].cpu())
+                    if has_seg:
+                        warped_seg.append(_warp_segmentation(pair[PairKeys.SEGMENTATION_A], net).cpu())
+                    net.clean()
+                mean_loss = {key: sum(loss[key] for loss in losses) / len(losses) for key in losses[0]}
+                _log_loss_scalars(writer, f"val/{ds_name}", mean_loss, iteration)
+                add_eval_images(
+                    writer,
+                    iteration,
+                    f"eval/{ds_name}",
+                    moving=batch[PairKeys.IMAGE_A],
+                    fixed=batch[PairKeys.IMAGE_B],
+                    warped=torch.cat(warped),
+                    moving_seg=batch[PairKeys.SEGMENTATION_A] if has_seg else None,
+                    fixed_seg=batch[PairKeys.SEGMENTATION_B] if has_seg else None,
+                    warped_seg=torch.cat(warped_seg) if has_seg else None,
+                    moving_mask=batch[PairKeys.MASK_A] if has_mask else None,
+                    fixed_mask=batch[PairKeys.MASK_B] if has_mask else None,
+                )
     finally:
         net_par.train()
-
-
-def _write_eval_visualizations(
-    writer: SummaryWriter,
-    iteration: int,
-    val_batch: Dict[str, torch.Tensor],
-    net: Any,
-    settings: TrainingConfig,
-    data_fields: FrozenSet[str],
-    ds_name: str,
-) -> None:
-    has_seg = Fields.SEGMENTATION in data_fields
-    has_mask = Fields.MASK in data_fields
-
-    warped_seg = None
-    if has_seg and settings.dice_loss_weight > 0.0:
-        warped_seg = compute_warped_image_multiNC(
-            val_batch[PairKeys.SEGMENTATION_A].float(),
-            net.phi_AB_vectorfield,
-            net.spacing,
-            spline_order=0,
-            zero_boundary=True,
-        )
-
-    add_eval_composite_panel(
-        writer,
-        iteration,
-        moving=val_batch[PairKeys.IMAGE_A],
-        fixed=val_batch[PairKeys.IMAGE_B],
-        warped=net.warped_image_A,
-        moving_seg=val_batch[PairKeys.SEGMENTATION_A] if has_seg else None,
-        fixed_seg=val_batch[PairKeys.SEGMENTATION_B] if has_seg else None,
-        warped_seg=warped_seg,
-        moving_mask=val_batch[PairKeys.MASK_A] if has_mask else None,
-        fixed_mask=val_batch[PairKeys.MASK_B] if has_mask else None,
-        tag=f"eval/{ds_name}",
-    )
 
 
 def finetune_multi(
@@ -330,20 +310,7 @@ def finetune_multi(
     val_data_loaders_dict: Dict[str, Any],
     data_fields: FrozenSet[str],
 ) -> None:
-    """
-    Unified finetuning loop.
-
-    The training step uses ``net_par`` (the DataParallel-wrapped network) so
-    forward/backward can scatter across GPUs. Validation, checkpoint saving,
-    and the optimizer use the unwrapped ``net``/``net.regis_net`` so behavior
-    is independent of the parallel wrapping.
-
-    Args:
-        config: Full configuration dict with 'experiment' and 'training' sections.
-        data_loader: Training DataLoader with weighted sampling.
-        val_data_loaders_dict: Dict mapping dataset name to validation DataLoader.
-        data_fields: Frozenset of auxiliary data fields (e.g. {"segmentation", "mask"}).
-    """
+    """Training loop: training uses net_par (DataParallel); validation, checkpoints and the optimizer use net."""
     schema = FinetuningConfigSchema.from_dict(config)
     settings = schema.training
     exp_config = config[ConfigSections.EXPERIMENT]
@@ -386,6 +353,7 @@ def finetune_multi(
         net_par = net.to(device)
 
     optimizer = _build_optimizer(net, settings.learning_rate, model_weights)
+    val_batches = _fixed_validation_batches(val_data_loaders_dict)
     net_par.train()
     os.makedirs(os.path.join(footsteps.output_dir, CHECKPOINT_DIR), exist_ok=True)
     writer = SummaryWriter(
@@ -438,7 +406,7 @@ def finetune_multi(
                 _run_validation(
                     net,
                     net_par,
-                    val_data_loaders_dict,
+                    val_batches,
                     writer,
                     iteration,
                     settings,
@@ -453,12 +421,14 @@ def finetune_multi(
 
 
 def main(argv: Optional[List[str]] = None) -> None:
-    import argparse
-    from .config import load_config, create_data_loaders, validate_config
-
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-    parser = argparse.ArgumentParser(description="Finetuning for uniGradICON")
+    parser = argparse.ArgumentParser(
+        description="Finetuning for uniGradICON",
+        epilog="Checkpoints are written to results/<experiment.name>/checkpoints/ and "
+               "TensorBoard logs to results/<experiment.name>/logs/. Example configs are in "
+               "configs/examples/ in the GitHub repository.",
+    )
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
 
     args = parser.parse_args(argv)

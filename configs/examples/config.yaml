@@ -1,11 +1,11 @@
 experiment:
   name: "example_experiment"
-  model_weights: "unigradicon"  # Auto-downloads pretrained weights; or set to a local path
+  model_weights: "unigradicon"  # Auto-downloads pretrained weights, or set a local path
 
 training:
   random_flips: false
   random_axis_permutations: false
-  batch_size: 4
+  batch_size: 2
   gpus: [0]
   epochs: 100
   eval_period: 10
@@ -20,14 +20,6 @@ datasets:
   - name: "example_dataset"
     type: "unpaired"
     json_file: "example_unpaired.json"
-    weight: 1.0 # Relative sampling weight
+    weight: 1.0  # Relative sampling weight
     is_ct: false
     quantile_range: [0.0, 0.99]
-
-  # Example of adding a second dataset (weights are relative):
-  # - name: "second_dataset"
-  #   type: "unpaired"
-  #   json_file: "another_dataset.json"
-  #   weight: 0.3
-  #   is_ct: true
-  #   ct_window: [-1000, 1000]

@@ -89,7 +89,7 @@ def generate_lungct_json(data_dir, output_dir):
 def generate_abdomenmrct_json(data_dir, output_dir):
     """Generate JSON for AbdomenMRCT cross-modality dataset (unpaired, with segmentations).
 
-    Includes all CT (_0000) and MR (_0001) images with per-image modality field.
+    Includes all MR (_0000) and CT (_0001) images with per-image modality field.
     The dataset preprocesses each image according to its modality (CT windowing
     vs quantile normalization). Use with lncc2 for modality-invariant similarity.
     """
@@ -104,7 +104,7 @@ def generate_abdomenmrct_json(data_dir, output_dir):
         if not fname.endswith(".nii.gz"):
             continue
         image_path = os.path.join(images_dir, fname)
-        modality = "ct" if fname.endswith("_0000.nii.gz") else "mri"
+        modality = "mri" if fname.endswith("_0000.nii.gz") else "ct"
 
         entry = {
             "image": _rel_path(image_path, output_dir),
@@ -196,7 +196,7 @@ def main():
         config_name = name.replace(".json", ".yaml")
         print(f"  unigradicon-finetune --config configs/learn2reg/{config_name}")
     if len(generated) > 1:
-        print(f"  unigradicon-finetune --config configs/learn2reg/l2r_multi.yaml")
+        print("  unigradicon-finetune --config configs/learn2reg/l2r_multi.yaml")
 
 
 if __name__ == "__main__":

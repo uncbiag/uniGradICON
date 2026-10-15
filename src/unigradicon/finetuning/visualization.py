@@ -13,55 +13,23 @@ GOLDEN_RATIO_CONJUGATE = 0.61803398875
 PALETTE_SATURATION = 0.75
 PALETTE_VALUE = 0.95
 
-TENSORBOARD_FORMAT = "NCHW"
-
 
 def _extract_middle_slice(im: Tensor) -> Tensor:
-    """Take the middle slice along dim 3.
-
-    For a 5D ``(N, C, D, H, W)`` tensor produced from an ITK volume that
-    has been reoriented to RAS, ``D=Z, H=Y, W=X``. Slicing dim 3 (Y) yields
-    the middle coronal slice, which is the convention used by the eval
-    panels in TensorBoard.
-    """
+    """Middle slice along dim 3 of a (N, C, D, H, W) volume."""
     if len(im.shape) == 5:
         return im[:, :, :, im.shape[3] // 2]
     return im
 
 
-def _normalize_to_unit(im: Tensor) -> Tensor:
-    """Normalize tensor values to the [0, 1] display range."""
-    if not torch.is_floating_point(im):
-        im = im.float()
-    min_value = torch.min(im)
-    max_value = torch.max(im)
-    span = (max_value - min_value).clamp_min(torch.finfo(im.dtype).eps)
-    return (im - min_value) / span
-
-
-def render_for_tensorboard(
-    im: Tensor,
-    max_samples: int = MAX_DISPLAY_SAMPLES,
-    normalize: bool = True,
-) -> Tensor:
-    """Prepare image tensor for TensorBoard as an RGB image batch.
-
-    Set ``normalize=False`` for tensors whose absolute values carry meaning
-    (e.g. the difference panel, where 0.5 = no residual). Min-max stretching
-    those would erase the magnitude signal.
-    """
-    im = _extract_middle_slice(im)
-    if normalize:
-        im = _normalize_to_unit(im)
+def render_for_tensorboard(im: Tensor, max_samples: int = MAX_DISPLAY_SAMPLES) -> Tensor:
+    """Render the middle slice of an already normalized [0, 1] image as RGB."""
+    im = _extract_middle_slice(im).float().clamp(0, 1)
     return im[:max_samples, [0, 0, 0]].detach().cpu()
 
 
 def segmentation_labels_for_tensorboard(im: Tensor, max_samples: int = MAX_DISPLAY_SAMPLES) -> Tensor:
-    """Convert one-hot or label-map segmentations to integer label images."""
-    im = _extract_middle_slice(im)
-    if im.shape[1] == 1:
-        return torch.round(im[:max_samples, 0]).long()
-    return torch.argmax(im[:max_samples], dim=1).long()
+    """Convert single-channel segmentations to integer label images."""
+    return torch.round(_extract_middle_slice(im)[:max_samples, 0]).long()
 
 
 def _hsv_to_rgb(h: Tensor, s: Tensor, v: Tensor) -> Tensor:
@@ -139,11 +107,7 @@ def render_mask_overlay_for_tensorboard(
 ) -> Tensor:
     """Blend a binary ROI mask over its image as a single solid color."""
     image_rgb = render_for_tensorboard(image).to(mask.device)
-    mask_slice = _extract_middle_slice(mask)[:MAX_DISPLAY_SAMPLES]
-    if mask_slice.shape[1] != 1:
-        mask_bool = (mask_slice > 0).any(dim=1, keepdim=True)
-    else:
-        mask_bool = mask_slice > 0
+    mask_bool = _extract_middle_slice(mask)[:MAX_DISPLAY_SAMPLES] > 0
     color_tensor = torch.tensor(
         color, dtype=image_rgb.dtype, device=image_rgb.device
     ).view(1, 3, 1, 1)
@@ -155,13 +119,10 @@ def render_mask_overlay_for_tensorboard(
     return overlay.detach().cpu()
 
 
-def _add_images(writer: SummaryWriter, tag: str, images: Tensor, step: int) -> None:
-    writer.add_images(tag, images, step, dataformats=TENSORBOARD_FORMAT)
-
-
-def add_eval_composite_panel(
+def add_eval_images(
     writer: SummaryWriter,
     step: int,
+    tag: str,
     moving: Tensor,
     fixed: Tensor,
     warped: Tensor,
@@ -170,42 +131,22 @@ def add_eval_composite_panel(
     warped_seg: Optional[Tensor] = None,
     moving_mask: Optional[Tensor] = None,
     fixed_mask: Optional[Tensor] = None,
-    tag: str = "eval",
 ) -> None:
-    """Write a single composite eval panel under ``{tag}`` (default ``"eval"``).
-
-    Each row is a 4-column strip ``[moving | fixed | warped | difference]``.
-    A segmentation row (overlays on the image) is appended when seg tensors
-    are passed; a mask row (overlay) is appended when mask tensors are passed.
-    Empty cells are filled with a black panel so columns stay aligned.
-    """
-    moving_rgb = render_for_tensorboard(moving)
-    fixed_rgb = render_for_tensorboard(fixed)
-    warped_rgb = render_for_tensorboard(warped)
-    difference = torch.clamp(
-        (warped[:MAX_DISPLAY_SAMPLES, :1] - fixed[:MAX_DISPLAY_SAMPLES, :1]) + DIFFERENCE_OFFSET,
-        0,
-        1,
-    )
-    diff_rgb = render_for_tensorboard(difference, normalize=False)
-    rows = [torch.cat([moving_rgb, fixed_rgb, warped_rgb, diff_rgb], dim=3)]
-
+    """Log each image type under its own tag, as ICON's training loop does."""
+    difference = torch.clamp(warped[:, :1] - fixed[:, :1] + DIFFERENCE_OFFSET, 0, 1)
+    images = {
+        "moving": render_for_tensorboard(moving),
+        "fixed": render_for_tensorboard(fixed),
+        "warped": render_for_tensorboard(warped),
+        "difference": render_for_tensorboard(difference),
+    }
     if moving_seg is not None and fixed_seg is not None:
-        moving_seg_rgb = render_segmentation_overlay_for_tensorboard(moving, moving_seg)
-        fixed_seg_rgb = render_segmentation_overlay_for_tensorboard(fixed, fixed_seg)
+        images["moving_segmentation"] = render_segmentation_overlay_for_tensorboard(moving, moving_seg)
+        images["fixed_segmentation"] = render_segmentation_overlay_for_tensorboard(fixed, fixed_seg)
         if warped_seg is not None:
-            warped_seg_rgb = render_segmentation_overlay_for_tensorboard(warped, warped_seg)
-        else:
-            warped_seg_rgb = torch.zeros_like(moving_seg_rgb)
-        blank = torch.zeros_like(moving_seg_rgb)
-        rows.append(torch.cat([moving_seg_rgb, fixed_seg_rgb, warped_seg_rgb, blank], dim=3))
-
+            images["warped_segmentation"] = render_segmentation_overlay_for_tensorboard(warped, warped_seg)
     if moving_mask is not None and fixed_mask is not None:
-        moving_mask_rgb = render_mask_overlay_for_tensorboard(moving, moving_mask)
-        fixed_mask_rgb = render_mask_overlay_for_tensorboard(fixed, fixed_mask)
-        # No warped_mask: the network does not propagate masks through the transform.
-        blank = torch.zeros_like(moving_mask_rgb)
-        rows.append(torch.cat([moving_mask_rgb, fixed_mask_rgb, blank, blank], dim=3))
-
-    composite = torch.cat(rows, dim=2)
-    _add_images(writer, tag, composite, step)
+        images["moving_mask"] = render_mask_overlay_for_tensorboard(moving, moving_mask)
+        images["fixed_mask"] = render_mask_overlay_for_tensorboard(fixed, fixed_mask)
+    for name, image in images.items():
+        writer.add_images(f"{tag}/{name}", image, step, dataformats="NCHW")

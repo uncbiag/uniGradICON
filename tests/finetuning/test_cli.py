@@ -10,10 +10,9 @@ itself is mocked so tests do not require the real network or a GPU.
 import json
 
 import pytest
-import torch
 import yaml
 
-from unigradicon.finetuning import dataset, finetune
+from unigradicon.finetuning import finetune
 
 
 @pytest.fixture

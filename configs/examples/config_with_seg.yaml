@@ -1,11 +1,11 @@
 experiment:
   name: "example_seg_experiment"
-  model_weights: "unigradicon"  # Auto-downloads pretrained weights; or set to a local path
+  model_weights: "unigradicon"  # Auto-downloads pretrained weights, or set a local path
 
 training:
   random_flips: false
   random_axis_permutations: false
-  batch_size: 4
+  batch_size: 2
   gpus: [0]
   epochs: 100
   eval_period: 10
@@ -15,7 +15,6 @@ training:
   similarity: "lncc"
   lambda: 1.5
   dice_loss_weight: 0.3
-  loss_function_masking: false
   lncc_sigma: 5
 
 datasets:

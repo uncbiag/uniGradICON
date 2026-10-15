@@ -1,0 +1,10 @@
+{
+  "data": [
+    {
+      "image": "/path/to/ct_image1.nii.gz"
+    },
+    {
+      "image": "/path/to/ct_image2.nii.gz"
+    }
+  ]
+}

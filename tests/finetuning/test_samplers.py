@@ -67,12 +67,12 @@ def test_subject_pair_sampler_partner_respects_subject():
     entries = _entries(
         ("k0", "s1"), ("k1", "s1"), ("k2", "s1"),
         ("k3", "s2"), ("k4", "s2"),
-        ("k5", "s3"),  # orphan subject; k5 must not appear as a sampler key.
+        ("k5", "s3"),
     )
     keys = [e.image for e in entries]
     sampler = dataset.SubjectPairSampler(entries, keys, "demo")
 
-    assert "k5" not in sampler.keys  # orphan filtered out
+    assert "k5" not in sampler.keys
     random.seed(0)
     for _ in range(50):
         for anchor in ("k0", "k1", "k2"):

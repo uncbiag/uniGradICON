@@ -1,11 +1,11 @@
 experiment:
   name: "multi_dataset_example"
-  model_weights: "unigradicon"  # Auto-downloads pretrained weights; or set to a local path
+  model_weights: "unigradicon"  # Auto-downloads pretrained weights, or set a local path
 
 training:
   random_flips: false
   random_axis_permutations: false
-  batch_size: 4
+  batch_size: 2
   gpus: [0]
   epochs: 100
   eval_period: 10
@@ -21,14 +21,14 @@ datasets:
   - name: "dataset_mri"
     type: "unpaired"
     json_file: "example_unpaired.json"
-    weight: 0.6  # 60% of batches will come from this dataset
+    weight: 0.6  # About 60% of training samples come from this dataset
     is_ct: false
     quantile_range: [0.0, 0.99]
 
-  # Second dataset: CT example (using same json for demo — replace with your actual CT dataset JSON)
+  # Second dataset: CT example
   - name: "dataset_ct"
     type: "unpaired"
-    json_file: "example_unpaired.json"
-    weight: 0.4  # 40% of batches will come from this dataset
+    json_file: "example_ct.json"
+    weight: 0.4  # About 40% of training samples come from this dataset
     is_ct: true
     ct_window: [-1000, 1000]

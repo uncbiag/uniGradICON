@@ -1,7 +1,6 @@
 """Unit tests for DatasetCache + Dataset cache integration."""
 import json
 import os
-import pytest
 import torch
 
 from unigradicon.finetuning import dataset
@@ -289,8 +288,5 @@ def test_dataset_indexing_anchor_is_deterministic(tmp_path, fake_image_reader):
                          cache_dir=str(cache_dir), use_cache=True,
                          shuffle=False)
     expected_anchor = ds.keys[2]
-    # The actual anchor is self.keys[2]; partner is random but anchor must hold.
-    # We don't have an easy way to read which path was used by ds[2] (the
-    # tensors are zero-filled); instead assert the public invariant:
     assert ds.keys[2] == expected_anchor
     assert len(ds) == 5

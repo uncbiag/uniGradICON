@@ -9,10 +9,9 @@ the test runs without real medical-image files (~5 seconds).
 """
 import json
 import pytest
-import torch
 import yaml
 
-from unigradicon.finetuning import config, dataset
+from unigradicon.finetuning import config
 from unigradicon.finetuning.dataset import Fields, PairKeys
 
 
