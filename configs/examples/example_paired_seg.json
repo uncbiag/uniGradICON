@@ -1,0 +1,14 @@
+{
+  "data": [
+    {
+      "image": "/path/to/patient1_t0.nii.gz",
+      "segmentation": "/path/to/patient1_t0_seg.nii.gz",
+      "subject_id": "patient1"
+    },
+    {
+      "image": "/path/to/patient1_t1.nii.gz",
+      "segmentation": "/path/to/patient1_t1_seg.nii.gz",
+      "subject_id": "patient1"
+    }
+  ]
+}

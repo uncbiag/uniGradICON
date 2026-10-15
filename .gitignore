@@ -1,2 +1,8 @@
 *.pyc
 *.egg-info
+datasets/
+network_weights/
+results/
+configs/learn2reg/l2r_*.json
+__pycache__/
+/build/

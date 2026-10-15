@@ -1,17 +1,15 @@
 import itk
 import numpy as np
 import unittest
-import numpy as np
 import torch
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
 
 
 import icon_registration.test_utils
 import icon_registration.itk_wrapper
 import icon_registration.pretrained_models
 
-from unigradicon import preprocess, get_unigradicon
+from unigradicon import preprocess, get_unigradicon, get_model_from_model_zoo, make_sim
 
 
 class TestItkInterface(unittest.TestCase):
@@ -170,6 +168,83 @@ class TestItkInterface(unittest.TestCase):
             dists.append(np.sqrt(np.sum((px - py) ** 2)))
         self.assertLess(np.mean(dists), 2.1)
     
+    def test_register_pair_with_mask_masking(self):
+        """Test register_pair_with_mask with loss_function_masking (mask_A/B only)."""
+        net = get_model_from_model_zoo("unigradicon", make_sim("lncc"), loss_function_masking=True)
+
+        image_exp = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_EXP_STD_COPD_img.nii.gz"))
+        image_insp = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_INSP_STD_COPD_img.nii.gz"))
+        image_exp_seg = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_EXP_STD_COPD_label.nii.gz"))
+        image_insp_seg = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_INSP_STD_COPD_label.nii.gz"))
+
+        phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(
+            net,
+            preprocess(image_insp, "ct"),
+            preprocess(image_exp, "ct"),
+            mask_A=image_insp_seg,
+            mask_B=image_exp_seg,
+            finetune_steps=2,
+        )
+        assert isinstance(phi_AB, itk.CompositeTransform)
+
+    def test_register_pair_with_mask_dice(self):
+        """Test register_pair_with_mask with dice_loss_weight (segmentation_A/B only)."""
+        net = get_model_from_model_zoo("unigradicon", make_sim("lncc"), dice_loss_weight=0.5)
+
+        image_exp = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_EXP_STD_COPD_img.nii.gz"))
+        image_insp = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_INSP_STD_COPD_img.nii.gz"))
+        image_exp_seg = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_EXP_STD_COPD_label.nii.gz"))
+        image_insp_seg = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_INSP_STD_COPD_label.nii.gz"))
+
+        phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(
+            net,
+            preprocess(image_insp, "ct"),
+            preprocess(image_exp, "ct"),
+            segmentation_A=image_insp_seg,
+            segmentation_B=image_exp_seg,
+            finetune_steps=2,
+        )
+        assert isinstance(phi_AB, itk.CompositeTransform)
+
+    def test_register_pair_with_mask_both(self):
+        """Test register_pair_with_mask with both mask and segmentation."""
+        net = get_model_from_model_zoo("unigradicon", make_sim("lncc"), dice_loss_weight=0.5, loss_function_masking=True)
+
+        image_exp = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_EXP_STD_COPD_img.nii.gz"))
+        image_insp = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_INSP_STD_COPD_img.nii.gz"))
+        image_exp_seg = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_EXP_STD_COPD_label.nii.gz"))
+        image_insp_seg = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_INSP_STD_COPD_label.nii.gz"))
+
+        phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(
+            net,
+            preprocess(image_insp, "ct"),
+            preprocess(image_exp, "ct"),
+            mask_A=image_insp_seg,
+            mask_B=image_exp_seg,
+            segmentation_A=image_insp_seg,
+            segmentation_B=image_exp_seg,
+            finetune_steps=2,
+        )
+        assert isinstance(phi_AB, itk.CompositeTransform)
+
+    def test_register_pair_with_mask_images_only(self):
+        """``register_pair_with_mask`` with no mask or segmentation kwargs
+        must still work — the function falls through to the same model call
+        ``register_pair`` would make."""
+        net = get_model_from_model_zoo("unigradicon", make_sim("lncc"))
+
+        image_exp = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_EXP_STD_COPD_img.nii.gz"))
+        image_insp = itk.imread(str(self.test_data_dir / "lung_test_data/copd1_highres_INSP_STD_COPD_img.nii.gz"))
+
+        phi_AB, phi_BA = icon_registration.itk_wrapper.register_pair_with_mask(
+            net,
+            preprocess(image_insp, "ct"),
+            preprocess(image_exp, "ct"),
+            finetune_steps=2,
+        )
+        assert isinstance(phi_AB, itk.CompositeTransform)
+        assert isinstance(phi_BA, itk.CompositeTransform)
+
     def test_itk_warp(self):
         fixed_path = f"{self.test_data_dir}/brain_test_data/8_T1w_acpc_dc_restore_brain.nii.gz"
         moving_path = f"{self.test_data_dir}/brain_test_data/2_T1w_acpc_dc_restore_brain.nii.gz"

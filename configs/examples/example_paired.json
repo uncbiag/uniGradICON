@@ -1,0 +1,20 @@
+{
+  "data": [
+    {
+      "image": "/path/to/patient1_t0.nii.gz",
+      "subject_id": "patient1"
+    },
+    {
+      "image": "/path/to/patient1_t1.nii.gz",
+      "subject_id": "patient1"
+    },
+    {
+      "image": "/path/to/patient2_t0.nii.gz",
+      "subject_id": "patient2"
+    },
+    {
+      "image": "/path/to/patient2_t1.nii.gz",
+      "subject_id": "patient2"
+    }
+  ]
+}

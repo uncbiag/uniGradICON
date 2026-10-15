@@ -1,0 +1,14 @@
+{
+  "data": [
+    {
+      "image": "/path/to/image1.nii.gz",
+      "segmentation": "/path/to/seg1.nii.gz",
+      "mask": "/path/to/mask1.nii.gz"
+    },
+    {
+      "image": "/path/to/image2.nii.gz",
+      "segmentation": "/path/to/seg2.nii.gz",
+      "mask": "/path/to/mask2.nii.gz"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "data": [
+    {
+      "image": "/path/to/image1.nii.gz"
+    },
+    {
+      "image": "/path/to/image2.nii.gz"
+    },
+    {
+      "image": "/path/to/image3.nii.gz"
+    }
+  ]
+}
